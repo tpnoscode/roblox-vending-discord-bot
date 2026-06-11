@@ -45,6 +45,14 @@ npm run dev
 | 로블록스 아이템 지급 연동 | 미구현 |
 | 운영자 대시보드 | 미구현 |
 
+## Antigravity 연결 가이드
+
+1. **Antigravity 실행**: 본인의 컴퓨터에서 Antigravity를 실행합니다.
+2. **저장소 연결**: `New Project`를 클릭하고 이 GitHub 저장소(`roblox-vending-discord-bot`)를 연결합니다.
+3. **초기 프롬프트 입력**: 연결이 완료되면 `docs/ANTIGRAVITY_PROMPT.md`에 있는 내용을 복사하여 Antigravity 채팅창에 입력합니다.
+4. **환경 변수 설정**: Antigravity 설정에서 `.env.example`에 정의된 변수들을 입력합니다. (Discord 토큰 등)
+5. **24시간 호스팅**: Antigravity의 `Scheduled Tasks` 기능을 활용하여 봇이 지속적으로 실행되도록 설정할 수 있습니다.
+
 ## 다음 단계
 
-다음 단계에서는 GitHub 원격 저장소를 연결하고, Discord Developer Portal에서 애플리케이션을 만든 뒤, Antigravity가 이 저장소를 인식하도록 연결합니다. 사용자가 GitHub 계정 또는 저장소 URL, Discord 로그인 가능 여부, 봇 이름을 제공하면 이어서 진행할 수 있습니다.
+현재 모든 기초 세팅이 완료되었습니다. 이제 사용자가 Antigravity에서 이 저장소를 연결하고 본격적인 기능 개발을 시작하면 됩니다. 필요한 정보(Discord 토큰 등)는 이미 준비되어 있으니 Antigravity 설정 시 입력해 주세요.
