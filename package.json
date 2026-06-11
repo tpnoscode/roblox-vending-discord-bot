@@ -1,0 +1,26 @@
+{
+  "name": "roblox-vending-discord-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord vending bot base setup for Roblox items and Robux operations.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "check": "npm run lint"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.8.0",
+    "eslint": "^9.8.0",
+    "prettier": "^3.3.3"
+  }
+}
