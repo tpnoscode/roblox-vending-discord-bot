@@ -1,0 +1,182 @@
+import {
+  handleInfo,
+  handleMyInfo,
+  handleItemsForSale,
+  handleInfoBack,
+  handleSelectCategory,
+  handleBuy,
+  handleBuySelectCategory,
+  handleBuySelectProduct,
+  handleBuyModalSubmit,
+} from '../commands/vending/vending.js';
+import {
+  handleManageBackToCategories,
+  handleManageSelectCategory,
+  handleManageSelectProduct,
+  handleManageModalSubmit,
+} from '../commands/vending/manageStock.js';
+import * as db from '../utils/db.js';
+
+export const name = 'interactionCreate';
+export const once = false;
+
+export async function execute(interaction) {
+  // Handle button interactions
+  if (interaction.isButton()) {
+    const { customId } = interaction;
+
+    try {
+      if (customId === 'vending_info') {
+        await handleInfo(interaction);
+        return;
+      }
+      if (customId === 'vending_my_info') {
+        await handleMyInfo(interaction);
+        return;
+      }
+      if (customId === 'vending_items_for_sale') {
+        await handleItemsForSale(interaction);
+        return;
+      }
+      if (customId === 'vending_info_back') {
+        await handleInfoBack(interaction);
+        return;
+      }
+      if (customId === 'vending_manage_back_to_categories') {
+        await handleManageBackToCategories(interaction);
+        return;
+      }
+      if (customId === 'vending_buy' || customId === 'vending_buy_back_to_categories') {
+        await handleBuy(interaction);
+        return;
+      }
+
+      // Default mute handler for other vending buttons
+      if (customId.startsWith('vending_')) {
+        await interaction.deferUpdate();
+        return;
+      }
+    } catch (error) {
+      console.error(`Error handling button click for ${customId}:`, error);
+    }
+  }
+
+  // Handle select menu interactions
+  if (interaction.isStringSelectMenu()) {
+    const { customId } = interaction;
+    try {
+      if (customId === 'vending_select_category') {
+        await handleSelectCategory(interaction);
+        return;
+      }
+      if (customId === 'vending_manage_select_category') {
+        await handleManageSelectCategory(interaction);
+        return;
+      }
+      if (customId === 'vending_manage_select_product') {
+        await handleManageSelectProduct(interaction);
+        return;
+      }
+      if (customId === 'vending_buy_select_category') {
+        await handleBuySelectCategory(interaction);
+        return;
+      }
+      if (customId === 'vending_buy_select_product') {
+        await handleBuySelectProduct(interaction);
+        return;
+      }
+    } catch (error) {
+      console.error(`Error handling select menu ${customId}:`, error);
+    }
+  }
+
+  // Handle modal submit interactions
+  if (interaction.isModalSubmit()) {
+    const { customId } = interaction;
+
+    if (customId === 'stock_create_modal') {
+      const name = interaction.fields.getTextInputValue('stock_name');
+      const category = interaction.fields.getTextInputValue('stock_category');
+      const priceStr = interaction.fields.getTextInputValue('stock_price');
+
+      const price = parseInt(priceStr, 10);
+      if (isNaN(price) || price < 0) {
+        await interaction.reply({
+          content: '❌ 가격은 0 이상의 정수(숫자만)로 입력해 주세요!',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      try {
+        const dbData = db.read();
+        if (!dbData.products) dbData.products = {};
+
+        const productId = `prod_${Date.now()}`;
+        dbData.products[productId] = {
+          id: productId,
+          name: name,
+          category: category,
+          price: price,
+          stockCount: 0,
+        };
+
+        db.write(dbData);
+
+        await interaction.reply({
+          content:
+            `✅ **재고 상품이 성공적으로 등록되었습니다!**\n\n` +
+            `📦 **이름:** \`${name}\`\n` +
+            `📂 **카테고리:** \`${category}\` (자동 생성 완료)\n` +
+            `💵 **가격:** \`${price.toLocaleString()}원\``,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('Error saving stock from modal submission:', error);
+        await interaction.reply({
+          content: '❌ 재고 저장 도중 오류가 발생했습니다.',
+          ephemeral: true,
+        });
+      }
+    } else if (customId.startsWith('vending_manage_modal_')) {
+      const productId = customId.replace('vending_manage_modal_', '');
+      try {
+        await handleManageModalSubmit(interaction, productId);
+      } catch (error) {
+        console.error(`Error handling stock manage modal submit:`, error);
+      }
+    } else if (customId.startsWith('vending_buy_modal_')) {
+      const productId = customId.replace('vending_buy_modal_', '');
+      try {
+        await handleBuyModalSubmit(interaction, productId);
+      } catch (error) {
+        console.error(`Error handling purchase modal submit:`, error);
+      }
+    }
+    return;
+  }
+
+  if (!interaction.isChatInputCommand()) return;
+
+  const command = interaction.client.commands.get(interaction.commandName);
+
+  if (!command) {
+    console.error(`No command matching ${interaction.commandName} was found.`);
+    return;
+  }
+
+  try {
+    await command.execute(interaction);
+  } catch (error) {
+    console.error(`Error executing command ${interaction.commandName}:`, error);
+    const replyContent = {
+      content: '명령어 실행 중 오류가 발생했습니다.',
+      ephemeral: true,
+    };
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp(replyContent);
+    } else {
+      await interaction.reply(replyContent);
+    }
+  }
+}
