@@ -559,3 +559,103 @@ export async function handleBuyModalSubmit(interaction, productId) {
     });
   }
 }
+
+// ----------------------------------------------------
+// Vending Recharge Button Interaction Handlers
+// ----------------------------------------------------
+
+export async function handleCharge(interaction) {
+  const dbData = db.read();
+  const config = dbData.config || {};
+
+  // Check if charge settings are configured
+  if (!config.bankInfo || !config.accountHolder) {
+    await interaction.reply({
+      content: '❌ **현재 자동 충전 시스템이 활성화되지 않았습니다.**\n관리자가 `/충전세팅` 명령어로 계좌 정보를 설정한 후 이용할 수 있습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('vending_charge_modal_submit')
+    .setTitle('💵 자판기 잔액 충전 신청');
+
+  const nameInput = new TextInputBuilder()
+    .setCustomId('charge_depositor_name')
+    .setLabel('입금자명')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setPlaceholder('실제 이체하실 입금자명을 입력해 주세요.')
+    .setMaxLength(10);
+
+  const amountInput = new TextInputBuilder()
+    .setCustomId('charge_amount')
+    .setLabel('충전할 금액 (숫자만)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setPlaceholder('예: 10000')
+    .setMaxLength(8);
+
+  const row1 = new ActionRowBuilder().addComponents(nameInput);
+  const row2 = new ActionRowBuilder().addComponents(amountInput);
+
+  modal.addComponents(row1, row2);
+
+  await interaction.showModal(modal);
+}
+
+export async function handleChargeModalSubmit(interaction) {
+  const depositorName = interaction.fields.getTextInputValue('charge_depositor_name').trim();
+  const amountStr = interaction.fields.getTextInputValue('charge_amount').trim();
+
+  const amount = parseInt(amountStr, 10);
+  if (isNaN(amount) || amount <= 0) {
+    await interaction.reply({
+      content: '❌ **충전 금액은 0원보다 큰 숫자(정수)로만 입력해 주세요!**',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const dbData = db.read();
+  const config = dbData.config || {};
+
+  // Initialize pendingCharges array if not exists
+  if (!dbData.pendingCharges) {
+    dbData.pendingCharges = [];
+  }
+
+  // Create pending charge object
+  const pendingCharge = {
+    userId: interaction.user.id,
+    username: interaction.user.username,
+    depositorName: depositorName,
+    amount: amount,
+    createdAt: Date.now()
+  };
+
+  dbData.pendingCharges.push(pendingCharge);
+  db.write(dbData);
+
+  const embed = new EmbedBuilder()
+    .setColor('#F1C40F') // Yellow/Gold
+    .setTitle('💵 충전 신청 완료')
+    .setDescription(
+      `아래 계좌로 입금해 주시면 입금이 확인되는 즉시 자동으로 충전됩니다.\n\n` +
+      `🏦 **입금 계좌:** \`${config.bankInfo}\`\n` +
+      `👤 **예금주:** \`${config.accountHolder}\`\n` +
+      `💰 **입금 금액:** \`${amount.toLocaleString()}원\`\n` +
+      `👤 **입금자명:** \`${depositorName}\`\n\n` +
+      `⚠️ **주의사항**\n` +
+      `- 반드시 입력하신 **입금자명(\`${depositorName}\`)**과 **금액(\`${amount.toLocaleString()}원\`** 그대로 정확하게 송금해 주셔야 합니다.\n` +
+      `- **5분 이내**에 입금이 완료되어야 자동으로 반영됩니다. 5분이 지난 입금 건은 관리자에게 수동 처리를 요청해야 할 수 있습니다.`
+    )
+    .setTimestamp();
+
+  await interaction.reply({
+    embeds: [embed],
+    ephemeral: true
+  });
+}
+

@@ -8,6 +8,8 @@ import {
   handleBuySelectCategory,
   handleBuySelectProduct,
   handleBuyModalSubmit,
+  handleCharge,
+  handleChargeModalSubmit,
 } from '../commands/vending/vending.js';
 import {
   handleManageBackToCategories,
@@ -15,6 +17,7 @@ import {
   handleManageSelectProduct,
   handleManageModalSubmit,
 } from '../commands/vending/manageStock.js';
+import { handleSettingsModalSubmit } from '../commands/vending/chargeSettings.js';
 import * as db from '../utils/db.js';
 
 export const name = 'interactionCreate';
@@ -48,6 +51,10 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_buy' || customId === 'vending_buy_back_to_categories') {
         await handleBuy(interaction);
+        return;
+      }
+      if (customId === 'vending_charge') {
+        await handleCharge(interaction);
         return;
       }
 
@@ -93,6 +100,23 @@ export async function execute(interaction) {
   // Handle modal submit interactions
   if (interaction.isModalSubmit()) {
     const { customId } = interaction;
+
+    if (customId === 'vending_charge_settings_modal') {
+      try {
+        await handleSettingsModalSubmit(interaction);
+      } catch (error) {
+        console.error('Error handling charge settings modal:', error);
+      }
+      return;
+    }
+    if (customId === 'vending_charge_modal_submit') {
+      try {
+        await handleChargeModalSubmit(interaction);
+      } catch (error) {
+        console.error('Error handling charge modal submit:', error);
+      }
+      return;
+    }
 
     if (customId === 'stock_create_modal') {
       const name = interaction.fields.getTextInputValue('stock_name');

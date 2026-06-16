@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits, Collection } from 'discord.js';
 import { loadCommands, loadEvents } from './utils/loader.js';
+import * as pushbullet from './utils/pushbullet.js';
 
 const requiredEnv = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
@@ -38,6 +39,9 @@ async function start() {
   // Log in to Discord with token
   try {
     await client.login(process.env.DISCORD_BOT_TOKEN);
+    // Initialize and start Pushbullet connection
+    pushbullet.init(client);
+    pushbullet.start();
   } catch (error) {
     console.error('Failed to log in to Discord:', error);
     process.exit(1);
