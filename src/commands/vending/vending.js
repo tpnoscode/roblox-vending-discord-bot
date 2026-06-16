@@ -577,6 +577,23 @@ export async function handleCharge(interaction) {
     return;
   }
 
+  // Check if there is an active pending charge for this user
+  const pendingCharges = dbData.pendingCharges || [];
+  const activeCharge = pendingCharges.find(
+    c => c.userId === interaction.user.id && (Date.now() - c.createdAt < 5 * 60 * 1000)
+  );
+
+  if (activeCharge) {
+    const elapsed = Date.now() - activeCharge.createdAt;
+    if (elapsed < 1 * 60 * 1000) {
+      await interaction.reply({
+        content: '❌ 이미 대기중인 충전이 있습니다 1분후 다시 시도 해주세요 !',
+        ephemeral: true,
+      });
+      return;
+    }
+  }
+
   const modal = new ModalBuilder()
     .setCustomId('vending_charge_modal_submit')
     .setTitle('💵 자판기 잔액 충전 신청');
@@ -621,8 +638,10 @@ export async function handleChargeModalSubmit(interaction) {
   const dbData = db.read();
   const config = dbData.config || {};
 
-  // Initialize pendingCharges array if not exists
-  if (!dbData.pendingCharges) {
+  // Remove any previous pending charges for this user to avoid duplicates
+  if (dbData.pendingCharges) {
+    dbData.pendingCharges = dbData.pendingCharges.filter(c => c.userId !== interaction.user.id);
+  } else {
     dbData.pendingCharges = [];
   }
 
@@ -649,7 +668,7 @@ export async function handleChargeModalSubmit(interaction) {
       `👤 **입금자명:** \`${depositorName}\`\n\n` +
       `⚠️ **주의사항**\n` +
       `- 반드시 입력하신 **입금자명(\`${depositorName}\`)**과 **금액(\`${amount.toLocaleString()}원\`** 그대로 정확하게 송금해 주셔야 합니다.\n` +
-      `- **5분 이내**에 입금이 완료되어야 자동으로 반영됩니다. 5분이 지난 입금 건은 관리자에게 수동 처리를 요청해야 할 수 있습니다.`
+      `- **5분 이내**에 입금이 완료되어야 자동으로 반영됩니다. 5분이 지난 입금 건은 만료 처리됩니다.`
     )
     .setTimestamp();
 
@@ -657,5 +676,35 @@ export async function handleChargeModalSubmit(interaction) {
     embeds: [embed],
     ephemeral: true
   });
+
+  // Set timeout to handle 5-minute expiration
+  setTimeout(async () => {
+    try {
+      const currentDb = db.read();
+      const stillPending = (currentDb.pendingCharges || []).some(
+        c => c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt
+      );
+
+      if (stillPending) {
+        // Remove from database
+        currentDb.pendingCharges = (currentDb.pendingCharges || []).filter(
+          c => !(c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt)
+        );
+        db.write(currentDb);
+
+        const expiredEmbed = new EmbedBuilder()
+          .setColor('#E74C3C') // Red
+          .setTitle('❌ 충전 시간 만료')
+          .setDescription('시간이 경과되어서 충전에 실패했습니다.');
+
+        await interaction.editReply({
+          embeds: [expiredEmbed]
+        });
+        console.log(`Charge timeout: Expired charge request for ${pendingCharge.username} (${pendingCharge.userId})`);
+      }
+    } catch (err) {
+      console.error('Error handling charge timeout:', err);
+    }
+  }, 5 * 60 * 1000);
 }
 

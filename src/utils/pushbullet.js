@@ -180,18 +180,24 @@ export async function matchAndProcessDeposit(body) {
     return;
   }
 
-  // Find a matching pending charge
-  // The notification body MUST contain BOTH the amount (e.g. "10,000" or "10000") AND the depositor name
   let matchedIndex = -1;
   for (let i = 0; i < validCharges.length; i++) {
     const charge = validCharges[i];
     const amountStr = charge.amount.toString();
-    const amountFormatted = charge.amount.toLocaleString(); // e.g., "10,000"
+    const amountFormatted = charge.amount.toLocaleString();
 
-    const matchesName = body.includes(charge.depositorName);
-    const matchesAmount = body.includes(amountStr) || body.includes(amountFormatted);
+    const nameIndex = body.indexOf(charge.depositorName);
+    if (nameIndex === -1) {
+      continue;
+    }
 
-    if (matchesName && matchesAmount) {
+    // Remove the depositor name from the body first to prevent the vulnerability
+    // where the depositor name contains the amount digits (e.g. name is "100원" and deposit is "1원", but amount is "100원")
+    const bodyWithoutName = body.slice(0, nameIndex) + body.slice(nameIndex + charge.depositorName.length);
+
+    const matchesAmount = bodyWithoutName.includes(amountStr) || bodyWithoutName.includes(amountFormatted);
+
+    if (matchesAmount) {
       matchedIndex = i;
       break;
     }
