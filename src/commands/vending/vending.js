@@ -814,6 +814,10 @@ export async function handleRandomBoxSelect(interaction) {
     return;
   }
 
+  const gradesList = (box.grades && box.grades.length > 0)
+    ? box.grades.map(g => `• **${g.grade}** (확률: \`${g.displayProbability}%\`) | 보상: \`${g.reward}\``).join('\n')
+    : '⚠️ 등록된 구성품(등급/확률/보상)이 없습니다. `/랜덤박스관리` 명령어에서 먼저 등록해 주세요.';
+
   const embed = new EmbedBuilder()
     .setColor('#9B59B6')
     .setTitle(`🎁 랜덤박스 상세 정보 - ${box.name}`)
@@ -821,7 +825,7 @@ export async function handleRandomBoxSelect(interaction) {
       `상세 정보를 확인하신 후 구매를 결정해 주세요.\n\n` +
       `💵 **구매 가격:** \`${box.price.toLocaleString()}원\`\n\n` +
       `📊 **당첨 확률 및 구성품:**\n` +
-      box.grades.map(g => `• **${g.grade}** (확률: \`${g.displayProbability}%\`) | 보상: \`${g.reward}\``).join('\n')
+      gradesList
     );
 
   const btnBuy = new ButtonBuilder()
@@ -868,6 +872,13 @@ export async function handleRandomBoxBuy(interaction, boxId) {
 
   // Draw grade using Weighted Random Algorithm on actualProbability
   const grades = box.grades || [];
+  if (grades.length === 0) {
+    await interaction.reply({
+      content: '❌ **해당 랜덤박스는 준비 중입니다. (구성품 미등록)**\n관리자가 `/랜덤박스관리` 명령어에서 구성품을 먼저 설정해야 구매할 수 있습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
   let rand = Math.random() * 100;
   let cumulative = 0;
   let drawnGrade = null;

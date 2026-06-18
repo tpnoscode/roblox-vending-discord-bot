@@ -48,17 +48,9 @@ export async function execute(interaction) {
     .setPlaceholder('가격을 입력하세요 (숫자만)')
     .setRequired(true);
 
-  const configInput = new TextInputBuilder()
-    .setCustomId('randombox_grades_config')
-    .setLabel('등급 설정 (등급명:공개확률:실제확률:보상)')
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
-    .setPlaceholder('예시:\nS급:10:1:전설의 피닉스 펫\nA급:30:20:희귀한 드래곤 펫\n일반:60:79:기본 슬라임 펫\n(공개/실제 확률 합계가 각각 100이 되도록 하세요.)');
-
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
-    new ActionRowBuilder().addComponents(priceInput),
-    new ActionRowBuilder().addComponents(configInput)
+    new ActionRowBuilder().addComponents(priceInput)
   );
 
   await interaction.showModal(modal);
@@ -67,7 +59,6 @@ export async function execute(interaction) {
 export async function handleRandomBoxAddModalSubmit(interaction) {
   const name = interaction.fields.getTextInputValue('randombox_name').trim();
   const priceStr = interaction.fields.getTextInputValue('randombox_price').trim();
-  const configStr = interaction.fields.getTextInputValue('randombox_grades_config').trim();
 
   const price = parseInt(priceStr, 10);
   if (isNaN(price) || price < 0) {
@@ -78,62 +69,7 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     return;
   }
 
-  const lines = configStr.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  const grades = [];
-  let totalDisplayProb = 0;
-  let totalActualProb = 0;
-
-  for (const line of lines) {
-    const parts = line.split(':');
-    if (parts.length !== 4) {
-      await interaction.reply({
-        content: `❌ 입력 형식이 올바르지 않습니다: \`${line}\`\n포맷: \`등급명:공개확률:실제확률:보상\` (예: S급:10:1:전설의 피닉스 펫)`,
-        ephemeral: true
-      });
-      return;
-    }
-    const gradeName = parts[0].trim();
-    const displayProbStr = parts[1].replace('%', '').trim();
-    const actualProbStr = parts[2].replace('%', '').trim();
-    const rewardItem = parts[3].trim();
-    const displayProb = parseInt(displayProbStr, 10);
-    const actualProb = parseInt(actualProbStr, 10);
-
-    if (isNaN(displayProb) || displayProb <= 0 || isNaN(actualProb) || actualProb <= 0) {
-      await interaction.reply({
-        content: `❌ 확률은 0보다 큰 숫자여야 합니다.`,
-        ephemeral: true
-      });
-      return;
-    }
-
-    if (!rewardItem) {
-      await interaction.reply({
-        content: `❌ 보상 아이템 이름을 입력해 주세요.`,
-        ephemeral: true
-      });
-      return;
-    }
-
-    grades.push({
-      grade: gradeName,
-      displayProbability: displayProb,
-      actualProbability: actualProb,
-      reward: rewardItem
-    });
-    totalDisplayProb += displayProb;
-    totalActualProb += actualProb;
-  }
-
-  if (totalDisplayProb !== 100 || totalActualProb !== 100) {
-    await interaction.reply({
-      content: `❌ 공개 확률과 실제 확률의 총합은 각각 100%여야 합니다.\n현재 공개 총합: \`${totalDisplayProb}%\` | 실제 총합: \`${totalActualProb}%\``,
-      ephemeral: true
-    });
-    return;
-  }
-
-  // Write to database
+  // Write to database with empty grades configuration
   const dbData = db.read();
   if (!dbData.randomBoxes) dbData.randomBoxes = {};
 
@@ -142,7 +78,7 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     id: boxId,
     name: name,
     price: price,
-    grades: grades
+    grades: [] // Initialized empty, configured via /랜덤박스관리
   };
 
   db.write(dbData);
@@ -155,8 +91,8 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
       `새로운 랜덤박스가 성공적으로 추가되었습니다!\n\n` +
       `📦 **이름:** \`${name}\`\n` +
       `💵 **가격:** \`${price.toLocaleString()}원\`\n\n` +
-      `📊 **등급별 설정 목록:**\n` +
-      grades.map(g => `• **${g.grade}**: 공개 \`${g.displayProbability}%\` | 실제 \`${g.actualProbability}%\` | 보상: \`${g.reward}\``).join('\n')
+      `⚠️ **안내**: 아직 등급 및 확률 설정이 완료되지 않았습니다.\n` +
+      `곧바로 **\`/랜덤박스관리\`** 명령어를 사용해 구성품(확률, 보상)을 추가해 주세요!`
     )
     .setTimestamp();
 
