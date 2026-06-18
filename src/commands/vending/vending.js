@@ -677,6 +677,9 @@ export async function handleChargeModalSubmit(interaction) {
     ephemeral: true
   });
 
+  // Save interaction to active charge map to allow real-time success updates from Pushbullet listener
+  pushbullet.activeChargeInteractions.set(interaction.user.id, interaction);
+
   // Set timeout to handle 5-minute expiration
   setTimeout(async () => {
     try {
@@ -691,6 +694,9 @@ export async function handleChargeModalSubmit(interaction) {
           c => !(c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt)
         );
         db.write(currentDb);
+
+        // Remove from active interactions map
+        pushbullet.activeChargeInteractions.delete(pendingCharge.userId);
 
         const expiredEmbed = new EmbedBuilder()
           .setColor('#E74C3C') // Red

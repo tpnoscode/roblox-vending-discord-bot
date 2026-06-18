@@ -7,6 +7,9 @@ let ws = null; // WebSocket connection
 let reconnectTimeout = null;
 let isStopping = false;
 
+// Store active interaction objects for ephemeral charge messages (userId -> interaction)
+export const activeChargeInteractions = new Map();
+
 export function init(discordClient) {
   client = discordClient;
 }
@@ -233,6 +236,28 @@ export async function matchAndProcessDeposit(body) {
 
   db.write(dbData);
   console.log(`✅ Pushbullet Match: Successfully charged ${matchedCharge.amount}원 to ${matchedCharge.username} (${matchedCharge.userId})`);
+
+  // 0. Edit the ephemeral reply of the charge request to Success
+  const activeInteraction = activeChargeInteractions.get(matchedCharge.userId);
+  if (activeInteraction) {
+    try {
+      const successEmbed = new EmbedBuilder()
+        .setColor('#2ECC71') // Green
+        .setTitle('✅ 충전 성공')
+        .setDescription(
+          `**${matchedCharge.username}**님의 입금이 정상 확인되었습니다!\n\n` +
+          `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
+          `🪙 **현재 잔액:** \`${user.balance.toLocaleString()}원\``
+        )
+        .setTimestamp();
+
+      await activeInteraction.editReply({ embeds: [successEmbed] });
+      activeChargeInteractions.delete(matchedCharge.userId);
+      console.log(`Pushbullet: Ephemeral charge message updated to success for ${matchedCharge.username}`);
+    } catch (err) {
+      console.error('Pushbullet: Failed to edit ephemeral message to success:', err);
+    }
+  }
 
   // 1. Send confirmation DM to the user
   if (client) {
