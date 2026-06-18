@@ -986,11 +986,10 @@ export async function handleRandomBoxBuy(interaction, boxId) {
             if (logChannel) {
               const logEmbed = new EmbedBuilder()
                 .setColor('#9B59B6')
-                .setTitle('🎁 [랜덤박스 가챠] 당첨 로그')
+                .setTitle('🎁 [랜덤박스 가챠] 구매 로그')
                 .setDescription(
                   `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
                   `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
-                  `🎁 **당첨 보상:** \`${drawnReward}\` (★ 수동 지급 대기)\n` +
                   `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
                   `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
                 );
