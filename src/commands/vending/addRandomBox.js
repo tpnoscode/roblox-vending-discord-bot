@@ -80,36 +80,44 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
   const lines = configStr.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
   const grades = [];
-  let totalProb = 0;
+  let totalDisplayProb = 0;
+  let totalActualProb = 0;
 
   for (const line of lines) {
     const parts = line.split(':');
-    if (parts.length !== 2) {
+    if (parts.length !== 3) {
       await interaction.reply({
-        content: `❌ 입력 형식이 올바르지 않습니다: \`${line}\`\n포맷: \`등급명:확률\` (예: S급:10)`,
+        content: `❌ 입력 형식이 올바르지 않습니다: \`${line}\`\n포맷: \`등급명:공개확률:실제확률\` (예: S급:10:1)`,
         ephemeral: true
       });
       return;
     }
     const gradeName = parts[0].trim();
-    const probStr = parts[1].replace('%', '').trim();
-    const prob = parseInt(probStr, 10);
+    const displayProbStr = parts[1].replace('%', '').trim();
+    const actualProbStr = parts[2].replace('%', '').trim();
+    const displayProb = parseInt(displayProbStr, 10);
+    const actualProb = parseInt(actualProbStr, 10);
 
-    if (isNaN(prob) || prob <= 0) {
+    if (isNaN(displayProb) || displayProb <= 0 || isNaN(actualProb) || actualProb <= 0) {
       await interaction.reply({
-        content: `❌ 확률은 0보다 큰 숫자여야 합니다: \`${probStr}\``,
+        content: `❌ 확률은 0보다 큰 숫자여야 합니다.`,
         ephemeral: true
       });
       return;
     }
 
-    grades.push({ grade: gradeName, probability: prob });
-    totalProb += prob;
+    grades.push({
+      grade: gradeName,
+      displayProbability: displayProb,
+      actualProbability: actualProb
+    });
+    totalDisplayProb += displayProb;
+    totalActualProb += actualProb;
   }
 
-  if (totalProb !== 100) {
+  if (totalDisplayProb !== 100 || totalActualProb !== 100) {
     await interaction.reply({
-      content: `❌ 확률의 총합이 100%여야 합니다. 현재 총합: \`${totalProb}%\``,
+      content: `❌ 공개 확률과 실제 확률의 총합은 각각 100%여야 합니다.\n현재 공개 총합: \`${totalDisplayProb}%\` | 실제 총합: \`${totalActualProb}%\``,
       ephemeral: true
     });
     return;
@@ -135,7 +143,7 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     id: boxId,
     name: pending.name,
     price: pending.price,
-    videoUrl: pending.videoUrl,
+    videoUrl: pending.videoUrl, // We keep this field, but we won't use it for rendering the box opening
     grades: grades
   };
 
@@ -148,10 +156,9 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     .setDescription(
       `새로운 랜덤박스가 성공적으로 추가되었습니다!\n\n` +
       `📦 **이름:** \`${pending.name}\`\n` +
-      `💵 **가격:** \`${pending.price.toLocaleString()}원\`\n` +
-      `🎬 **영상 링크:** [보기](${pending.videoUrl})\n\n` +
-      `📊 **등급별 확률 목록:**\n` +
-      grades.map(g => `• **${g.grade}**: \`${g.probability}%\``).join('\n')
+      `💵 **가격:** \`${pending.price.toLocaleString()}원\`\n\n` +
+      `📊 **등급별 확률 목록 (공개 vs 실제):**\n` +
+      grades.map(g => `• **${g.grade}**: 공개 \`${g.displayProbability}%\` | 실제 \`${g.actualProbability}%\``).join('\n')
     )
     .setTimestamp();
 

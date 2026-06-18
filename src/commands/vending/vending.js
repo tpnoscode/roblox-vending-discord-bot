@@ -821,7 +821,7 @@ export async function handleRandomBoxSelect(interaction) {
       `상세 정보를 확인하신 후 구매를 결정해 주세요.\n\n` +
       `💵 **구매 가격:** \`${box.price.toLocaleString()}원\`\n\n` +
       `📊 **당첨 확률 목록:**\n` +
-      box.grades.map(g => `• **${g.grade}**: \`${g.probability}%\``).join('\n')
+      box.grades.map(g => `• **${g.grade}**: \`${g.displayProbability}%\``).join('\n')
     );
 
   const btnBuy = new ButtonBuilder()
@@ -866,14 +866,14 @@ export async function handleRandomBoxBuy(interaction, boxId) {
     return;
   }
 
-  // Draw grade using Weighted Random Algorithm
+  // Draw grade using Weighted Random Algorithm on actualProbability
   const grades = box.grades || [];
   let rand = Math.random() * 100;
   let cumulative = 0;
   let drawnGrade = null;
 
   for (const g of grades) {
-    cumulative += g.probability;
+    cumulative += g.actualProbability;
     if (rand <= cumulative) {
       drawnGrade = g.grade;
       break;
@@ -905,82 +905,122 @@ export async function handleRandomBoxBuy(interaction, boxId) {
 
   db.write(freshDb);
 
-  // Show opening animation (10 seconds as requested)
-  const animEmbed = new EmbedBuilder()
-    .setColor('#F1C40F') // Gold/Yellow
+  // Initial animation message
+  const initialEmbed = new EmbedBuilder()
+    .setColor('#F1C40F')
     .setTitle('🎁 랜덤박스 개봉 중...')
-    .setDescription('과연 어떤 등급의 상품이 당첨될까요? 잠시만 기다려 주세요! (10초 소요)')
-    .setImage(box.videoUrl); // Set the configured image/GIF/video URL
+    .setDescription(
+      `과연 어떤 등급의 상품이 당첨될까요? 룰렛 회전 중...\n\n` +
+      grades.map((g, idx) => `　 ⚪ **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`).join('\n')
+    );
 
   await interaction.update({
-    embeds: [animEmbed],
+    embeds: [initialEmbed],
     components: [], // Remove buttons to prevent multiple clicks
   });
 
-  setTimeout(async () => {
+  // Start frame-by-frame roulette animation
+  let currentFrame = 0;
+  const totalFrames = 10; // 10 seconds total, 1 second per edit frame
+
+  const runAnimation = async () => {
     try {
-      const finalEmbed = new EmbedBuilder()
-        .setColor('#2ECC71') // Green for success
-        .setTitle('🎉 랜덤박스 개봉 완료!')
-        .setDescription(
-          `**${interaction.user.username}**님이 랜덤박스를 성공적으로 열었습니다!\n\n` +
-          `📦 **구매한 상자:** \`${box.name}\`\n` +
-          `🏆 **당첨 등급:** \`${drawnGrade}\`\n\n` +
-          `⚠️ **수동 지급 상품 안내**\n` +
-          `관리자가 확인 후 순차적으로 상품을 수동 지급해 드릴 예정입니다.\n` +
-          `수동 지급 대기 상태가 되었으며 관련 세부 사항은 DM으로도 전송되었습니다.`
-        )
-        .setTimestamp();
-
-      await interaction.editReply({
-        embeds: [finalEmbed]
-      });
-
-      // Send DM to user
-      try {
-        const discordUser = await interaction.client.users.fetch(interaction.user.id);
-        const dmEmbed = new EmbedBuilder()
-          .setColor('#2ECC71')
-          .setTitle('🎁 [랜덤박스 당첨 안내]')
+      if (currentFrame >= totalFrames) {
+        // Final congratulations screen
+        const finalEmbed = new EmbedBuilder()
+          .setColor('#2ECC71') // Green for success
+          .setTitle('🎉 랜덤박스 개봉 완료!')
           .setDescription(
-            `구매하신 **${box.name}**에서 아래 등급에 당첨되었습니다!\n\n` +
-            `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
-            `💵 **구매 단가:** \`${box.price.toLocaleString()}원\`\n` +
-            `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
-            `이 상품은 관리자 수동 지급 상품입니다. 관리자가 확인 후 빠른 시일 내에 지급해 드릴 예정이오니 잠시만 기다려 주세요!`
+            `**${interaction.user.username}**님이 랜덤박스를 성공적으로 열었습니다!\n\n` +
+            `📦 **구매한 상자:** \`${box.name}\`\n` +
+            `🏆 **당첨 등급:** \`${drawnGrade}\`\n\n` +
+            `⚠️ **수동 지급 상품 안내**\n` +
+            `관리자가 확인 후 순차적으로 상품을 수동 지급해 드릴 예정입니다.\n` +
+            `수동 지급 대기 상태가 되었으며 관련 세부 사항은 DM으로도 전송되었습니다.`
           )
           .setTimestamp();
-        await discordUser.send({ embeds: [dmEmbed] });
-      } catch (dmErr) {
-        console.error('Failed to send DM to randombox winner:', dmErr);
+
+        await interaction.editReply({
+          embeds: [finalEmbed]
+        });
+
+        // Send DM to user
+        try {
+          const discordUser = await interaction.client.users.fetch(interaction.user.id);
+          const dmEmbed = new EmbedBuilder()
+            .setColor('#2ECC71')
+            .setTitle('🎁 [랜덤박스 당첨 안내]')
+            .setDescription(
+              `구매하신 **${box.name}**에서 아래 등급에 당첨되었습니다!\n\n` +
+              `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
+              `💵 **구매 단가:** \`${box.price.toLocaleString()}원\`\n` +
+              `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
+              `이 상품은 관리자 수동 지급 상품입니다. 관리자가 확인 후 빠른 시일 내에 지급해 드릴 예정이오니 잠시만 기다려 주세요!`
+            )
+            .setTimestamp();
+          await discordUser.send({ embeds: [dmEmbed] });
+        } catch (dmErr) {
+          console.error('Failed to send DM to randombox winner:', dmErr);
+        }
+
+        // Log to charge/purchase log channel if configured
+        const purchaseLogChannelId = freshDb.config?.purchaseLogChannelId || freshDb.config?.logChannelId;
+        if (purchaseLogChannelId) {
+          try {
+            const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
+            if (logChannel) {
+              const logEmbed = new EmbedBuilder()
+                .setColor('#9B59B6')
+                .setTitle('🎁 [랜덤박스 가챠] 당첨 로그')
+                .setDescription(
+                  `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
+                  `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
+                  `🏆 **당첨 등급:** \`${drawnGrade}\` (★ 수동 지급 대기)\n` +
+                  `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
+                  `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
+                );
+              await logChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (logErr) {
+            console.error('Failed to write randombox purchase log to channel:', logErr);
+          }
+        }
+        return;
       }
 
-      // Log to charge/purchase log channel if configured
-      const purchaseLogChannelId = freshDb.config?.purchaseLogChannelId || freshDb.config?.logChannelId;
-      if (purchaseLogChannelId) {
-        try {
-          const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
-          if (logChannel) {
-            const logEmbed = new EmbedBuilder()
-              .setColor('#9B59B6')
-              .setTitle('🎁 [랜덤박스 가챠] 당첨 로그')
-              .setDescription(
-                `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
-                `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
-                `🏆 **당첨 등급:** \`${drawnGrade}\` (★ 수동 지급 대기)\n` +
-                `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
-                `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
-              );
-            await logChannel.send({ embeds: [logEmbed] });
-          }
-        } catch (logErr) {
-          console.error('Failed to write randombox purchase log to channel:', logErr);
-        }
+      // Determine which grade is highlighted in this frame
+      let highlightedIndex = currentFrame % grades.length;
+      
+      // In the last two frames, force pointer to align with the drawnGrade
+      if (currentFrame === totalFrames - 2) {
+        const targetIndex = grades.findIndex(g => g.grade === drawnGrade);
+        highlightedIndex = (targetIndex - 1 + grades.length) % grades.length;
+      } else if (currentFrame === totalFrames - 1) {
+        highlightedIndex = grades.findIndex(g => g.grade === drawnGrade);
       }
+
+      const animEmbed = new EmbedBuilder()
+        .setColor('#F1C40F')
+        .setTitle('🎁 랜덤박스 개봉 중...')
+        .setDescription(
+          `과연 어떤 등급의 상품이 당첨될까요? 룰렛 회전 중...\n\n` +
+          grades.map((g, idx) => {
+            const isHighlighted = idx === highlightedIndex;
+            return `${isHighlighted ? '➡️ 🔴' : '　 ⚪'} **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`;
+          }).join('\n')
+        );
+
+      await interaction.editReply({ embeds: [animEmbed] });
+
+      currentFrame++;
+      setTimeout(runAnimation, 1000); // 1.0s interval to prevent Discord API rate limit
     } catch (err) {
-      console.error('Error in randombox opening timeout:', err);
+      console.error('Error during randombox animation frame:', err);
     }
-  }, 10 * 1000); // 10 seconds timeout as requested
+  };
+
+  // Run the animation
+  setTimeout(runAnimation, 1000);
 }
 
 
