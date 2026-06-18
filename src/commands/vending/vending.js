@@ -950,9 +950,7 @@ export async function handleRandomBoxBuy(interaction, boxId) {
             `📦 **구매한 상자:** \`${box.name}\`\n` +
             `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
             `🎁 **당첨 보상:** \`${drawnReward}\`\n\n` +
-            `⚠️ **수동 지급 상품 안내**\n` +
-            `관리자가 확인 후 순차적으로 상품을 수동 지급해 드릴 예정입니다.\n` +
-            `수동 지급 대기 상태가 되었으며 관련 세부 사항은 DM으로도 전송되었습니다.`
+            `티켓을 열고 상품을 받아가세요`
           )
           .setTimestamp();
 
@@ -972,7 +970,7 @@ export async function handleRandomBoxBuy(interaction, boxId) {
               `🎁 **당첨 보상:** \`${drawnReward}\`\n` +
               `💵 **구매 단가:** \`${box.price.toLocaleString()}원\`\n` +
               `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
-              `이 상품은 관리자 수동 지급 상품입니다. 관리자가 확인 후 빠른 시일 내에 지급해 드릴 예정이오니 잠시만 기다려 주세요!`
+              `티켓을 열고 상품을 받아가세요`
             )
             .setTimestamp();
           await discordUser.send({ embeds: [dmEmbed] });
@@ -992,7 +990,6 @@ export async function handleRandomBoxBuy(interaction, boxId) {
                 .setDescription(
                   `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
                   `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
-                  `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
                   `🎁 **당첨 보상:** \`${drawnReward}\` (★ 수동 지급 대기)\n` +
                   `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
                   `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
