@@ -10,6 +10,10 @@ import {
   handleBuyModalSubmit,
   handleCharge,
   handleChargeModalSubmit,
+  handleRandomBoxButton,
+  handleRandomBoxBackToList,
+  handleRandomBoxSelect,
+  handleRandomBoxBuy,
 } from '../commands/vending/vending.js';
 import {
   handleManageBackToCategories,
@@ -23,6 +27,8 @@ import {
   handleDeleteSelectCategory,
   handleDeleteSelectProduct,
 } from '../commands/vending/deleteProduct.js';
+import { handleRandomBoxAddModalSubmit } from '../commands/vending/addRandomBox.js';
+import { handleRandomBoxDeleteSelect } from '../commands/vending/deleteRandomBox.js';
 import * as db from '../utils/db.js';
 
 export const name = 'interactionCreate';
@@ -64,6 +70,19 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_charge') {
         await handleCharge(interaction);
+        return;
+      }
+      if (customId === 'vending_randombox') {
+        await handleRandomBoxButton(interaction);
+        return;
+      }
+      if (customId === 'vending_randombox_back_to_list') {
+        await handleRandomBoxBackToList(interaction);
+        return;
+      }
+      if (customId.startsWith('vending_randombox_buy_')) {
+        const boxId = customId.replace('vending_randombox_buy_', '');
+        await handleRandomBoxBuy(interaction, boxId);
         return;
       }
 
@@ -109,6 +128,14 @@ export async function execute(interaction) {
         await handleDeleteSelectProduct(interaction);
         return;
       }
+      if (customId === 'vending_randombox_select') {
+        await handleRandomBoxSelect(interaction);
+        return;
+      }
+      if (customId === 'vending_randombox_delete_select') {
+        await handleRandomBoxDeleteSelect(interaction);
+        return;
+      }
     } catch (error) {
       console.error(`Error handling select menu ${customId}:`, error);
     }
@@ -131,6 +158,14 @@ export async function execute(interaction) {
         await handleChargeModalSubmit(interaction);
       } catch (error) {
         console.error('Error handling charge modal submit:', error);
+      }
+      return;
+    }
+    if (customId === 'randombox_add_modal_submit') {
+      try {
+        await handleRandomBoxAddModalSubmit(interaction);
+      } catch (error) {
+        console.error('Error handling random box add modal submit:', error);
       }
       return;
     }

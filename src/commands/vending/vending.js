@@ -711,3 +711,276 @@ export async function handleChargeModalSubmit(interaction) {
   }, 5 * 60 * 1000);
 }
 
+// ----------------------------------------------------
+// Vending Random Box Button Interaction Handlers
+// ----------------------------------------------------
+
+export async function handleRandomBoxButton(interaction) {
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const boxList = Object.values(randomBoxes);
+
+  if (boxList.length === 0) {
+    await interaction.reply({
+      content: '❌ **현재 등록된 랜덤박스가 없습니다.**\n관리자가 `/랜덤박스추가` 명령어로 상자를 설정한 후 이용할 수 있습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor('#9B59B6') // Amethyst Purple
+    .setTitle('🎁 랜덤박스 상점')
+    .setDescription(
+      '🪙 **뽑고 싶은 랜덤박스를 아래 메뉴에서 선택해 주세요!**\n\n' +
+      boxList.map(box => `• **${box.name}** | 가격: \`${box.price.toLocaleString()}원\``).join('\n')
+    );
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId('vending_randombox_select')
+    .setPlaceholder('구매할 랜덤박스를 선택하세요')
+    .addOptions(
+      boxList.map((box) => ({
+        label: box.name.slice(0, 50),
+        value: box.id,
+        description: `가격: ${box.price.toLocaleString()}원`,
+      }))
+    );
+
+  const btnBack = new ButtonBuilder()
+    .setCustomId('vending_info_back') // Return to main vending menu
+    .setLabel('처음으로')
+    .setStyle(ButtonStyle.Secondary);
+
+  const rowMenu = new ActionRowBuilder().addComponents(selectMenu);
+  const rowBtn = new ActionRowBuilder().addComponents(btnBack);
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [rowMenu, rowBtn],
+    ephemeral: true,
+  });
+}
+
+export async function handleRandomBoxBackToList(interaction) {
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const boxList = Object.values(randomBoxes);
+
+  const embed = new EmbedBuilder()
+    .setColor('#9B59B6')
+    .setTitle('🎁 랜덤박스 상점')
+    .setDescription(
+      '🪙 **뽑고 싶은 랜덤박스를 아래 메뉴에서 선택해 주세요!**\n\n' +
+      boxList.map(box => `• **${box.name}** | 가격: \`${box.price.toLocaleString()}원\``).join('\n')
+    );
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId('vending_randombox_select')
+    .setPlaceholder('구매할 랜덤박스를 선택하세요')
+    .addOptions(
+      boxList.map((box) => ({
+        label: box.name.slice(0, 50),
+        value: box.id,
+        description: `가격: ${box.price.toLocaleString()}원`,
+      }))
+    );
+
+  const btnBack = new ButtonBuilder()
+    .setCustomId('vending_info_back')
+    .setLabel('처음으로')
+    .setStyle(ButtonStyle.Secondary);
+
+  const rowMenu = new ActionRowBuilder().addComponents(selectMenu);
+  const rowBtn = new ActionRowBuilder().addComponents(btnBack);
+
+  await interaction.update({
+    embeds: [embed],
+    components: [rowMenu, rowBtn],
+  });
+}
+
+export async function handleRandomBoxSelect(interaction) {
+  const boxId = interaction.values[0];
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const box = randomBoxes[boxId];
+
+  if (!box) {
+    await interaction.reply({
+      content: '❌ 해당 랜덤박스를 찾을 수 없습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor('#9B59B6')
+    .setTitle(`🎁 랜덤박스 상세 정보 - ${box.name}`)
+    .setDescription(
+      `상세 정보를 확인하신 후 구매를 결정해 주세요.\n\n` +
+      `💵 **구매 가격:** \`${box.price.toLocaleString()}원\`\n\n` +
+      `📊 **당첨 확률 목록:**\n` +
+      box.grades.map(g => `• **${g.grade}**: \`${g.probability}%\``).join('\n')
+    );
+
+  const btnBuy = new ButtonBuilder()
+    .setCustomId(`vending_randombox_buy_${box.id}`)
+    .setLabel('구매하기')
+    .setEmoji('🎁')
+    .setStyle(ButtonStyle.Danger);
+
+  const btnBack = new ButtonBuilder()
+    .setCustomId('vending_randombox_back_to_list')
+    .setLabel('뒤로 가기')
+    .setStyle(ButtonStyle.Secondary);
+
+  const row = new ActionRowBuilder().addComponents(btnBuy, btnBack);
+
+  await interaction.update({
+    embeds: [embed],
+    components: [row],
+  });
+}
+
+export async function handleRandomBoxBuy(interaction, boxId) {
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const box = randomBoxes[boxId];
+
+  if (!box) {
+    await interaction.reply({
+      content: '❌ 해당 랜덤박스 상품이 더 이상 존재하지 않습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Check user balance
+  const user = db.getUser(interaction.user.id, interaction.user.username);
+  if ((user.balance || 0) < box.price) {
+    await interaction.reply({
+      content: `❌ **잔액이 부족합니다.**\n현재 잔액: \`${(user.balance || 0).toLocaleString()}원\` | 랜덤박스 가격: \`${box.price.toLocaleString()}원\``,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Draw grade using Weighted Random Algorithm
+  const grades = box.grades || [];
+  let rand = Math.random() * 100;
+  let cumulative = 0;
+  let drawnGrade = null;
+
+  for (const g of grades) {
+    cumulative += g.probability;
+    if (rand <= cumulative) {
+      drawnGrade = g.grade;
+      break;
+    }
+  }
+
+  // Fallback if draw fails somehow
+  if (!drawnGrade && grades.length > 0) {
+    drawnGrade = grades[grades.length - 1].grade;
+  }
+
+  // Deduct balance and update user stats in database
+  const freshDb = db.read();
+  const freshUser = freshDb.users[interaction.user.id];
+  freshUser.balance = (freshUser.balance || 0) - box.price;
+  freshUser.totalPurchased = (freshUser.totalPurchased || 0) + box.price;
+
+  // Add draw transaction
+  if (!freshDb.transactions) freshDb.transactions = [];
+  freshDb.transactions.push({
+    userId: interaction.user.id,
+    username: interaction.user.username,
+    type: 'randombox_purchase',
+    boxName: box.name,
+    price: box.price,
+    drawnGrade: drawnGrade,
+    timestamp: Date.now()
+  });
+
+  db.write(freshDb);
+
+  // Show opening animation (10 seconds as requested)
+  const animEmbed = new EmbedBuilder()
+    .setColor('#F1C40F') // Gold/Yellow
+    .setTitle('🎁 랜덤박스 개봉 중...')
+    .setDescription('과연 어떤 등급의 상품이 당첨될까요? 잠시만 기다려 주세요! (10초 소요)')
+    .setImage(box.videoUrl); // Set the configured image/GIF/video URL
+
+  await interaction.update({
+    embeds: [animEmbed],
+    components: [], // Remove buttons to prevent multiple clicks
+  });
+
+  setTimeout(async () => {
+    try {
+      const finalEmbed = new EmbedBuilder()
+        .setColor('#2ECC71') // Green for success
+        .setTitle('🎉 랜덤박스 개봉 완료!')
+        .setDescription(
+          `**${interaction.user.username}**님이 랜덤박스를 성공적으로 열었습니다!\n\n` +
+          `📦 **구매한 상자:** \`${box.name}\`\n` +
+          `🏆 **당첨 등급:** \`${drawnGrade}\`\n\n` +
+          `⚠️ **수동 지급 상품 안내**\n` +
+          `관리자가 확인 후 순차적으로 상품을 수동 지급해 드릴 예정입니다.\n` +
+          `수동 지급 대기 상태가 되었으며 관련 세부 사항은 DM으로도 전송되었습니다.`
+        )
+        .setTimestamp();
+
+      await interaction.editReply({
+        embeds: [finalEmbed]
+      });
+
+      // Send DM to user
+      try {
+        const discordUser = await interaction.client.users.fetch(interaction.user.id);
+        const dmEmbed = new EmbedBuilder()
+          .setColor('#2ECC71')
+          .setTitle('🎁 [랜덤박스 당첨 안내]')
+          .setDescription(
+            `구매하신 **${box.name}**에서 아래 등급에 당첨되었습니다!\n\n` +
+            `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
+            `💵 **구매 단가:** \`${box.price.toLocaleString()}원\`\n` +
+            `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
+            `이 상품은 관리자 수동 지급 상품입니다. 관리자가 확인 후 빠른 시일 내에 지급해 드릴 예정이오니 잠시만 기다려 주세요!`
+          )
+          .setTimestamp();
+        await discordUser.send({ embeds: [dmEmbed] });
+      } catch (dmErr) {
+        console.error('Failed to send DM to randombox winner:', dmErr);
+      }
+
+      // Log to charge/purchase log channel if configured
+      const purchaseLogChannelId = freshDb.config?.purchaseLogChannelId || freshDb.config?.logChannelId;
+      if (purchaseLogChannelId) {
+        try {
+          const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
+          if (logChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setColor('#9B59B6')
+              .setTitle('🎁 [랜덤박스 가챠] 당첨 로그')
+              .setDescription(
+                `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
+                `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
+                `🏆 **당첨 등급:** \`${drawnGrade}\` (★ 수동 지급 대기)\n` +
+                `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
+                `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
+              );
+            await logChannel.send({ embeds: [logEmbed] });
+          }
+        } catch (logErr) {
+          console.error('Failed to write randombox purchase log to channel:', logErr);
+        }
+      }
+    } catch (err) {
+      console.error('Error in randombox opening timeout:', err);
+    }
+  }, 10 * 1000); // 10 seconds timeout as requested
+}
+
+
