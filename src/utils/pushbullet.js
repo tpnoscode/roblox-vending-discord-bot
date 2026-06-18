@@ -8,7 +8,8 @@ let reconnectTimeout = null;
 let isStopping = false;
 
 // Store active interaction objects for ephemeral charge messages (userId -> interaction)
-export const activeChargeInteractions = new Map();
+global.activeChargeInteractions = global.activeChargeInteractions || new Map();
+export const activeChargeInteractions = global.activeChargeInteractions;
 
 export function init(discordClient) {
   client = discordClient;
@@ -150,6 +151,37 @@ async function processPush(push) {
   await matchAndProcessDeposit(body);
 }
 
+// Helper to find name with proper character boundaries (no alphanumeric or Hangul chars directly adjacent)
+function findNameMatchWithBoundaries(body, name) {
+  let index = body.indexOf(name);
+  while (index !== -1) {
+    let isValidBefore = true;
+    let isValidAfter = true;
+
+    if (index > 0) {
+      const charBefore = body[index - 1];
+      if (/[a-zA-Z0-9가-힣]/.test(charBefore)) {
+        isValidBefore = false;
+      }
+    }
+
+    const nextIndex = index + name.length;
+    if (nextIndex < body.length) {
+      const charAfter = body[nextIndex];
+      if (/[a-zA-Z0-9가-힣]/.test(charAfter)) {
+        isValidAfter = false;
+      }
+    }
+
+    if (isValidBefore && isValidAfter) {
+      return index; // Found a valid match with boundaries
+    }
+
+    index = body.indexOf(name, index + 1); // Search next occurrence
+  }
+  return -1;
+}
+
 export async function matchAndProcessDeposit(body) {
   const dbData = db.read();
   const pendingCharges = dbData.pendingCharges || [];
@@ -189,13 +221,13 @@ export async function matchAndProcessDeposit(body) {
     const amountStr = charge.amount.toString();
     const amountFormatted = charge.amount.toLocaleString();
 
-    const nameIndex = body.indexOf(charge.depositorName);
+    // Find if the depositor name matches with proper boundaries
+    const nameIndex = findNameMatchWithBoundaries(body, charge.depositorName);
     if (nameIndex === -1) {
       continue;
     }
 
-    // Remove the depositor name from the body first to prevent the vulnerability
-    // where the depositor name contains the amount digits (e.g. name is "100원" and deposit is "1원", but amount is "100원")
+    // Slice out the specific matched name from the body
     const bodyWithoutName = body.slice(0, nameIndex) + body.slice(nameIndex + charge.depositorName.length);
 
     const matchesAmount = bodyWithoutName.includes(amountStr) || bodyWithoutName.includes(amountFormatted);
