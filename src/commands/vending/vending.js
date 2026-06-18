@@ -860,17 +860,6 @@ export async function handleRandomBoxBuy(interaction, boxId) {
     return;
   }
 
-  // Check user balance
-  const user = db.getUser(interaction.user.id, interaction.user.username);
-  if ((user.balance || 0) < box.price) {
-    await interaction.reply({
-      content: `❌ **잔액이 부족합니다.**\n현재 잔액: \`${(user.balance || 0).toLocaleString()}원\` | 랜덤박스 가격: \`${box.price.toLocaleString()}원\``,
-      ephemeral: true,
-    });
-    return;
-  }
-
-  // Draw grade using Weighted Random Algorithm on actualProbability
   const grades = box.grades || [];
   if (grades.length === 0) {
     await interaction.reply({
@@ -879,84 +868,186 @@ export async function handleRandomBoxBuy(interaction, boxId) {
     });
     return;
   }
-  let rand = Math.random() * 100;
-  let cumulative = 0;
-  let drawnGrade = null;
 
-  for (const g of grades) {
-    cumulative += g.actualProbability;
-    if (rand <= cumulative) {
-      drawnGrade = g.grade;
-      break;
-    }
+  const modal = new ModalBuilder()
+    .setCustomId(`vending_randombox_buy_modal_${box.id}`)
+    .setTitle(`🎁 수량 선택 - ${box.name.slice(0, 20)}`);
+
+  const qtyInput = new TextInputBuilder()
+    .setCustomId('randombox_buy_quantity')
+    .setLabel('구매할 수량 (1 ~ 100)')
+    .setValue('1')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true);
+
+  modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
+
+  await interaction.showModal(modal);
+}
+
+export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
+  const qtyStr = interaction.fields.getTextInputValue('randombox_buy_quantity').trim();
+  let quantity = parseInt(qtyStr, 10);
+
+  if (isNaN(quantity) || quantity <= 0) {
+    quantity = 1;
+  }
+  if (quantity > 100) {
+    await interaction.reply({
+      content: '❌ 랜덤박스는 한 번에 최대 100개까지만 구매할 수 있습니다.',
+      ephemeral: true,
+    });
+    return;
   }
 
-  // Fallback if draw fails somehow
-  if (!drawnGrade && grades.length > 0) {
-    drawnGrade = grades[grades.length - 1].grade;
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const box = randomBoxes[boxId];
+
+  if (!box) {
+    await interaction.reply({
+      content: '❌ 해당 랜덤박스 상품이 더 이상 존재하지 않습니다.',
+      ephemeral: true,
+    });
+    return;
   }
 
-  const drawnGradeObj = grades.find(g => g.grade === drawnGrade);
-  const drawnReward = drawnGradeObj ? drawnGradeObj.reward : '보상 정보 없음';
+  const grades = box.grades || [];
+  if (grades.length === 0) {
+    await interaction.reply({
+      content: '❌ **해당 랜덤박스는 준비 중입니다. (구성품 미등록)**\n관리자가 `/랜덤박스관리` 명령어에서 구성품을 먼저 설정해야 구매할 수 있습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Check user balance
+  const user = db.getUser(interaction.user.id, interaction.user.username);
+  const totalPrice = box.price * quantity;
+  if ((user.balance || 0) < totalPrice) {
+    await interaction.reply({
+      content: `❌ **잔액이 부족합니다.**\n현재 잔액: \`${(user.balance || 0).toLocaleString()}원\` | 결제 금액: \`${totalPrice.toLocaleString()}원\` (단가: \`${box.price.toLocaleString()}원\` * \`${quantity}개\`)`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Defer reply with Slot Machine Frame 1
+  const initialEmbed = new EmbedBuilder()
+    .setColor('#F1C40F')
+    .setTitle('🎰 슬롯머신 가챠 시작! 🎰')
+    .setDescription(
+      `[ 🎰 🎰 🎰 가챠 돌리는 중! 🎰 🎰 🎰 ]\n\n` +
+      `과연 어떤 등급의 상품이 당첨될까요? 롤렛 회전 중...\n\n` +
+      `📦 **구매 수량:** \`${quantity}개\`\n` +
+      grades.map((g) => `• **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`).join('\n')
+    );
+
+  await interaction.reply({
+    embeds: [initialEmbed],
+    ephemeral: true,
+  });
+
+  // Execute draws
+  const drawnResults = [];
+  let highestGradeIndex = grades.length; // lower index is higher grade
+  let bestDrawnGrade = null;
+  let bestDrawnReward = null;
 
   // Deduct balance and update user stats in database
   const freshDb = db.read();
   const freshUser = freshDb.users[interaction.user.id];
-  freshUser.balance = (freshUser.balance || 0) - box.price;
-  freshUser.totalPurchased = (freshUser.totalPurchased || 0) + box.price;
+  freshUser.balance = (freshUser.balance || 0) - totalPrice;
+  freshUser.totalPurchased = (freshUser.totalPurchased || 0) + totalPrice;
 
-  // Add draw transaction
-  if (!freshDb.transactions) freshDb.transactions = [];
-  freshDb.transactions.push({
-    userId: interaction.user.id,
-    username: interaction.user.username,
-    type: 'randombox_purchase',
-    boxName: box.name,
-    price: box.price,
-    drawnGrade: drawnGrade,
-    drawnReward: drawnReward,
-    timestamp: Date.now()
-  });
+  for (let i = 0; i < quantity; i++) {
+    let rand = Math.random() * 100;
+    let cum = 0;
+    let drawnGrade = null;
+    let gradeIdx = -1;
+
+    for (let j = 0; j < grades.length; j++) {
+      const g = grades[j];
+      cum += g.actualProbability;
+      if (rand <= cum) {
+        drawnGrade = g.grade;
+        gradeIdx = j;
+        break;
+      }
+    }
+
+    if (gradeIdx === -1 && grades.length > 0) {
+      gradeIdx = grades.length - 1;
+      drawnGrade = grades[gradeIdx].grade;
+    }
+
+    const drawnGradeObj = grades[gradeIdx];
+    const drawnReward = drawnGradeObj ? drawnGradeObj.reward : '보상 정보 없음';
+
+    drawnResults.push({ grade: drawnGrade, reward: drawnReward, index: gradeIdx });
+
+    // Track highest grade drawn (lowest index)
+    if (gradeIdx < highestGradeIndex) {
+      highestGradeIndex = gradeIdx;
+      bestDrawnGrade = drawnGrade;
+      bestDrawnReward = drawnReward;
+    }
+
+    // Add draw transaction
+    if (!freshDb.transactions) freshDb.transactions = [];
+    freshDb.transactions.push({
+      userId: interaction.user.id,
+      username: interaction.user.username,
+      type: 'randombox_purchase',
+      boxName: box.name,
+      price: box.price,
+      drawnGrade: drawnGrade,
+      drawnReward: drawnReward,
+      timestamp: Date.now()
+    });
+  }
 
   db.write(freshDb);
 
-  // Initial animation message
-  const initialEmbed = new EmbedBuilder()
-    .setColor('#F1C40F')
-    .setTitle('🎁 랜덤박스 개봉 중...')
-    .setDescription(
-      `과연 어떤 등급의 상품이 당첨될까요? 룰렛 회전 중...\n\n` +
-      grades.map((g, idx) => `　 ⚪ **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`).join('\n')
-    );
-
-  await interaction.update({
-    embeds: [initialEmbed],
-    components: [], // Remove buttons to prevent multiple clicks
-  });
-
-  // Start frame-by-frame roulette animation
+  // Slot machine animation sequence (3.5 seconds total, 0.7 seconds interval)
   let currentFrame = 0;
-  const totalFrames = 10; // 10 seconds total, 1 second per edit frame
+  const animationFrames = [
+    { title: '🎰 슬롯머신 회전 중... 🎰', description: '[ 🔴 🟡 🟢 회전 중... ]' },
+    { title: '🎰 슬롯머신 회전 중... 🎰', description: '[ 🟡 🟢 🔵 회전 중... ]' },
+    { title: '🎰 슬롯머신 감속 중... 🎰', description: '[ 🟢 🔵 🟣 감속 중... ]' },
+    { title: '🎰 슬롯머신 멈추는 중... 🎰', description: '[ 🔵 🟣 👑 멈추는 중... ]' }
+  ];
 
-  const runAnimation = async () => {
+  const runSlotAnimation = async () => {
     try {
-      if (currentFrame >= totalFrames) {
-        // Final congratulations screen
+      if (currentFrame >= animationFrames.length) {
+        // Summarize results
+        const summary = {};
+        for (const res of drawnResults) {
+          if (!summary[res.grade]) {
+            summary[res.grade] = { count: 0, reward: res.reward };
+          }
+          summary[res.grade].count++;
+        }
+        const summaryLines = Object.entries(summary)
+          .map(([gradeName, info]) => `• **${gradeName}** (${info.count}개): \`${info.reward}\``)
+          .join('\n');
+
+        // Final congratulations screen showing highest grade drawn
         const finalEmbed = new EmbedBuilder()
-          .setColor('#2ECC71') // Green for success
-          .setTitle('🎉 랜덤박스 개봉 완료!')
+          .setColor('#2ECC71')
+          .setTitle('🎉 랜덤박스 개봉 완료! 🎉')
           .setDescription(
-            `**${interaction.user.username}**님이 랜덤박스를 성공적으로 열었습니다!\n\n` +
-            `📦 **구매한 상자:** \`${box.name}\`\n` +
-            `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
-            `🎁 **당첨 보상:** \`${drawnReward}\`\n\n` +
+            `[ 🎉 당첨! **${bestDrawnGrade}** - **${bestDrawnReward}** 🎉 ]\n\n` +
+            `**${interaction.user.username}**님이 랜덤박스 **${quantity}개**를 성공적으로 열었습니다!\n\n` +
+            `👑 **최고 당첨 등급:** \`${bestDrawnGrade}\`\n` +
+            `🎁 **최고 당첨 보상:** \`${bestDrawnReward}\`\n\n` +
+            `📦 **전체 당첨 내역:**\n${summaryLines}\n\n` +
             `티켓을 열고 상품을 받아가세요`
           )
           .setTimestamp();
 
-        await interaction.editReply({
-          embeds: [finalEmbed]
-        });
+        await interaction.editReply({ embeds: [finalEmbed] });
 
         // Send DM to user
         try {
@@ -965,10 +1056,11 @@ export async function handleRandomBoxBuy(interaction, boxId) {
             .setColor('#2ECC71')
             .setTitle('🎁 [랜덤박스 당첨 안내]')
             .setDescription(
-              `구매하신 **${box.name}**에서 아래 상품에 당첨되었습니다!\n\n` +
-              `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
-              `🎁 **당첨 보상:** \`${drawnReward}\`\n` +
-              `💵 **구매 단가:** \`${box.price.toLocaleString()}원\`\n` +
+              `구매하신 **${box.name}** (${quantity}개)에서 아래 상품들에 당첨되었습니다!\n\n` +
+              `👑 **최고 당첨 등급:** \`${bestDrawnGrade}\`\n` +
+              `🎁 **최고 당첨 보상:** \`${bestDrawnReward}\`\n\n` +
+              `📦 **전체 당첨 내역:**\n${summaryLines}\n\n` +
+              `💵 **구매 총액:** \`${totalPrice.toLocaleString()}원\` (단가: \`${box.price.toLocaleString()}원\`)\n` +
               `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
               `티켓을 열고 상품을 받아가세요`
             )
@@ -989,7 +1081,7 @@ export async function handleRandomBoxBuy(interaction, boxId) {
                 .setTitle('🎁 [랜덤박스 가챠] 구매 로그')
                 .setDescription(
                   `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
-                  `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
+                  `📦 **구매 상자:** \`${box.name}\` (\`${quantity}개\` / \`${totalPrice.toLocaleString()}원\`)\n` +
                   `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
                   `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
                 );
@@ -1002,39 +1094,28 @@ export async function handleRandomBoxBuy(interaction, boxId) {
         return;
       }
 
-      // Determine which grade is highlighted in this frame
-      let highlightedIndex = currentFrame % grades.length;
-      
-      // In the last two frames, force pointer to align with the drawnGrade
-      if (currentFrame === totalFrames - 2) {
-        const targetIndex = grades.findIndex(g => g.grade === drawnGrade);
-        highlightedIndex = (targetIndex - 1 + grades.length) % grades.length;
-      } else if (currentFrame === totalFrames - 1) {
-        highlightedIndex = grades.findIndex(g => g.grade === drawnGrade);
-      }
-
+      // Update frame
+      const frame = animationFrames[currentFrame];
       const animEmbed = new EmbedBuilder()
         .setColor('#F1C40F')
-        .setTitle('🎁 랜덤박스 개봉 중...')
+        .setTitle(frame.title)
         .setDescription(
-          `과연 어떤 등급의 상품이 당첨될까요? 룰렛 회전 중...\n\n` +
-          grades.map((g, idx) => {
-            const isHighlighted = idx === highlightedIndex;
-            return `${isHighlighted ? '➡️ 🔴' : '　 ⚪'} **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`;
-          }).join('\n')
+          `${frame.description}\n\n` +
+          `과연 어떤 등급의 상품이 당첨될까요? 롤렛 회전 중...\n\n` +
+          `📦 **구매 수량:** \`${quantity}개\`\n` +
+          grades.map((g) => `• **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`).join('\n')
         );
 
       await interaction.editReply({ embeds: [animEmbed] });
 
       currentFrame++;
-      setTimeout(runAnimation, 1000); // 1.0s interval to prevent Discord API rate limit
+      setTimeout(runSlotAnimation, 700);
     } catch (err) {
-      console.error('Error during randombox animation frame:', err);
+      console.error('Error during randombox slot animation frame:', err);
     }
   };
 
-  // Run the animation
-  setTimeout(runAnimation, 1000);
+  setTimeout(runSlotAnimation, 700);
 }
 
 

@@ -14,6 +14,7 @@ import {
   handleRandomBoxBackToList,
   handleRandomBoxSelect,
   handleRandomBoxBuy,
+  handleRandomBoxBuyModalSubmit,
 } from '../commands/vending/vending.js';
 import {
   handleManageBackToCategories,
@@ -242,6 +243,13 @@ export async function execute(interaction) {
         await handleRandomBoxManageModalSubmit(interaction, boxId);
       } catch (error) {
         console.error('Error handling random box manage modal submit:', error);
+      }
+    } else if (customId.startsWith('vending_randombox_buy_modal_')) {
+      const boxId = customId.replace('vending_randombox_buy_modal_', '');
+      try {
+        await handleRandomBoxBuyModalSubmit(interaction, boxId);
+      } catch (error) {
+        console.error('Error handling random box buy modal submit:', error);
       }
     }
     return;
