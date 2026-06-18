@@ -932,15 +932,17 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
     return;
   }
 
-  // Defer reply with Slot Machine Frame 1
+  // Initial animation message (sequentially highlight the first grade index 0)
   const initialEmbed = new EmbedBuilder()
     .setColor('#F1C40F')
-    .setTitle('🎰 슬롯머신 가챠 시작! 🎰')
+    .setTitle('🎰 랜덤박스 고속 개봉 중... 🎰')
     .setDescription(
-      `[ 🎰 🎰 🎰 가챠 돌리는 중! 🎰 🎰 🎰 ]\n\n` +
-      `과연 어떤 등급의 상품이 당첨될까요? 롤렛 회전 중...\n\n` +
-      `📦 **구매 수량:** \`${quantity}개\`\n` +
-      grades.map((g) => `• **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`).join('\n')
+      `과연 어떤 등급의 상품이 당첨될까요? 룰렛 고속 회전 중...\n\n` +
+      `📦 **구매 수량:** \`${quantity}개\`\n\n` +
+      grades.map((g, idx) => {
+        const isHighlighted = idx === 0;
+        return `${isHighlighted ? '➡️ 🔴' : '　 ⚪'} **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`;
+      }).join('\n')
     );
 
   await interaction.reply({
@@ -1009,18 +1011,13 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
 
   db.write(freshDb);
 
-  // Slot machine animation sequence (3.5 seconds total, 0.7 seconds interval)
+  // Roulette animation sequence (7.2 seconds total, 400ms interval)
   let currentFrame = 0;
-  const animationFrames = [
-    { title: '🎰 슬롯머신 회전 중... 🎰', description: '[ 🔴 🟡 🟢 회전 중... ]' },
-    { title: '🎰 슬롯머신 회전 중... 🎰', description: '[ 🟡 🟢 🔵 회전 중... ]' },
-    { title: '🎰 슬롯머신 감속 중... 🎰', description: '[ 🟢 🔵 🟣 감속 중... ]' },
-    { title: '🎰 슬롯머신 멈추는 중... 🎰', description: '[ 🔵 🟣 👑 멈추는 중... ]' }
-  ];
+  const totalFrames = 18;
 
   const runSlotAnimation = async () => {
     try {
-      if (currentFrame >= animationFrames.length) {
+      if (currentFrame >= totalFrames) {
         // Summarize results
         const summary = {};
         for (const res of drawnResults) {
@@ -1094,28 +1091,39 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
         return;
       }
 
-      // Update frame
-      const frame = animationFrames[currentFrame];
+      // Update frame showing the rotating pointer
+      let highlightedIndex = currentFrame % grades.length;
+      
+      // In the last two frames, force pointer to align with the bestDrawnGrade
+      if (currentFrame === totalFrames - 2) {
+        const targetIndex = grades.findIndex(g => g.grade === bestDrawnGrade);
+        highlightedIndex = (targetIndex - 1 + grades.length) % grades.length;
+      } else if (currentFrame === totalFrames - 1) {
+        highlightedIndex = grades.findIndex(g => g.grade === bestDrawnGrade);
+      }
+
       const animEmbed = new EmbedBuilder()
         .setColor('#F1C40F')
-        .setTitle(frame.title)
+        .setTitle('🎰 랜덤박스 고속 개봉 중... 🎰')
         .setDescription(
-          `${frame.description}\n\n` +
-          `과연 어떤 등급의 상품이 당첨될까요? 롤렛 회전 중...\n\n` +
-          `📦 **구매 수량:** \`${quantity}개\`\n` +
-          grades.map((g) => `• **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`).join('\n')
+          `과연 어떤 등급의 상품이 당첨될까요? 룰렛 고속 회전 중...\n\n` +
+          `📦 **구매 수량:** \`${quantity}개\`\n\n` +
+          grades.map((g, idx) => {
+            const isHighlighted = idx === highlightedIndex;
+            return `${isHighlighted ? '➡️ 🔴' : '　 ⚪'} **${g.grade}** (공개 확률: \`${g.displayProbability}%\`)`;
+          }).join('\n')
         );
 
       await interaction.editReply({ embeds: [animEmbed] });
 
       currentFrame++;
-      setTimeout(runSlotAnimation, 700);
+      setTimeout(runSlotAnimation, 400); // 400ms interval for fast tempo
     } catch (err) {
       console.error('Error during randombox slot animation frame:', err);
     }
   };
 
-  setTimeout(runSlotAnimation, 700);
+  setTimeout(runSlotAnimation, 400);
 }
 
 
