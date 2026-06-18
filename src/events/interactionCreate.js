@@ -18,6 +18,11 @@ import {
   handleManageModalSubmit,
 } from '../commands/vending/manageStock.js';
 import { handleSettingsModalSubmit } from '../commands/vending/chargeSettings.js';
+import {
+  handleDeleteBackToCategories,
+  handleDeleteSelectCategory,
+  handleDeleteSelectProduct,
+} from '../commands/vending/deleteProduct.js';
 import * as db from '../utils/db.js';
 
 export const name = 'interactionCreate';
@@ -47,6 +52,10 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_manage_back_to_categories') {
         await handleManageBackToCategories(interaction);
+        return;
+      }
+      if (customId === 'vending_delete_back_to_categories') {
+        await handleDeleteBackToCategories(interaction);
         return;
       }
       if (customId === 'vending_buy' || customId === 'vending_buy_back_to_categories') {
@@ -90,6 +99,14 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_buy_select_product') {
         await handleBuySelectProduct(interaction);
+        return;
+      }
+      if (customId === 'vending_delete_select_category') {
+        await handleDeleteSelectCategory(interaction);
+        return;
+      }
+      if (customId === 'vending_delete_select_product') {
+        await handleDeleteSelectProduct(interaction);
         return;
       }
     } catch (error) {
