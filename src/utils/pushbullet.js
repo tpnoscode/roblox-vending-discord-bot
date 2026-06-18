@@ -273,17 +273,10 @@ export async function matchAndProcessDeposit(body) {
   const activeInteraction = activeChargeInteractions.get(matchedCharge.userId);
   if (activeInteraction) {
     try {
-      const successEmbed = new EmbedBuilder()
-        .setColor('#2ECC71') // Green
-        .setTitle('✅ 충전 성공')
-        .setDescription(
-          `**${matchedCharge.username}**님의 입금이 정상 확인되었습니다!\n\n` +
-          `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
-          `🪙 **현재 잔액:** \`${user.balance.toLocaleString()}원\``
-        )
-        .setTimestamp();
-
-      await activeInteraction.editReply({ embeds: [successEmbed] });
+      await activeInteraction.editReply({
+        content: '✅ 즉시 충전성공',
+        embeds: []
+      });
       activeChargeInteractions.delete(matchedCharge.userId);
       console.log(`Pushbullet: Ephemeral charge message updated to success for ${matchedCharge.username}`);
     } catch (err) {

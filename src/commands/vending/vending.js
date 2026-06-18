@@ -12,6 +12,7 @@ import {
 } from 'discord.js';
 import path from 'path';
 import * as db from '../../utils/db.js';
+import * as pushbullet from '../../utils/pushbullet.js';
 
 export const data = new SlashCommandBuilder()
   .setName('자판기')
@@ -698,13 +699,9 @@ export async function handleChargeModalSubmit(interaction) {
         // Remove from active interactions map
         pushbullet.activeChargeInteractions.delete(pendingCharge.userId);
 
-        const expiredEmbed = new EmbedBuilder()
-          .setColor('#E74C3C') // Red
-          .setTitle('❌ 충전 시간 만료')
-          .setDescription('시간이 경과되어서 충전에 실패했습니다.');
-
         await interaction.editReply({
-          embeds: [expiredEmbed]
+          content: '❌ 시간이 경과되어서 충전에 실패했습니다.',
+          embeds: []
         });
         console.log(`Charge timeout: Expired charge request for ${pendingCharge.username} (${pendingCharge.userId})`);
       }
