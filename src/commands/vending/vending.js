@@ -820,8 +820,8 @@ export async function handleRandomBoxSelect(interaction) {
     .setDescription(
       `상세 정보를 확인하신 후 구매를 결정해 주세요.\n\n` +
       `💵 **구매 가격:** \`${box.price.toLocaleString()}원\`\n\n` +
-      `📊 **당첨 확률 목록:**\n` +
-      box.grades.map(g => `• **${g.grade}**: \`${g.displayProbability}%\``).join('\n')
+      `📊 **당첨 확률 및 구성품:**\n` +
+      box.grades.map(g => `• **${g.grade}** (확률: \`${g.displayProbability}%\`) | 보상: \`${g.reward}\``).join('\n')
     );
 
   const btnBuy = new ButtonBuilder()
@@ -885,6 +885,9 @@ export async function handleRandomBoxBuy(interaction, boxId) {
     drawnGrade = grades[grades.length - 1].grade;
   }
 
+  const drawnGradeObj = grades.find(g => g.grade === drawnGrade);
+  const drawnReward = drawnGradeObj ? drawnGradeObj.reward : '보상 정보 없음';
+
   // Deduct balance and update user stats in database
   const freshDb = db.read();
   const freshUser = freshDb.users[interaction.user.id];
@@ -900,6 +903,7 @@ export async function handleRandomBoxBuy(interaction, boxId) {
     boxName: box.name,
     price: box.price,
     drawnGrade: drawnGrade,
+    drawnReward: drawnReward,
     timestamp: Date.now()
   });
 
@@ -933,7 +937,8 @@ export async function handleRandomBoxBuy(interaction, boxId) {
           .setDescription(
             `**${interaction.user.username}**님이 랜덤박스를 성공적으로 열었습니다!\n\n` +
             `📦 **구매한 상자:** \`${box.name}\`\n` +
-            `🏆 **당첨 등급:** \`${drawnGrade}\`\n\n` +
+            `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
+            `🎁 **당첨 보상:** \`${drawnReward}\`\n\n` +
             `⚠️ **수동 지급 상품 안내**\n` +
             `관리자가 확인 후 순차적으로 상품을 수동 지급해 드릴 예정입니다.\n` +
             `수동 지급 대기 상태가 되었으며 관련 세부 사항은 DM으로도 전송되었습니다.`
@@ -951,8 +956,9 @@ export async function handleRandomBoxBuy(interaction, boxId) {
             .setColor('#2ECC71')
             .setTitle('🎁 [랜덤박스 당첨 안내]')
             .setDescription(
-              `구매하신 **${box.name}**에서 아래 등급에 당첨되었습니다!\n\n` +
+              `구매하신 **${box.name}**에서 아래 상품에 당첨되었습니다!\n\n` +
               `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
+              `🎁 **당첨 보상:** \`${drawnReward}\`\n` +
               `💵 **구매 단가:** \`${box.price.toLocaleString()}원\`\n` +
               `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
               `이 상품은 관리자 수동 지급 상품입니다. 관리자가 확인 후 빠른 시일 내에 지급해 드릴 예정이오니 잠시만 기다려 주세요!`
@@ -975,7 +981,8 @@ export async function handleRandomBoxBuy(interaction, boxId) {
                 .setDescription(
                   `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
                   `📦 **구매 상자:** \`${box.name}\` (\`${box.price.toLocaleString()}원\`)\n` +
-                  `🏆 **당첨 등급:** \`${drawnGrade}\` (★ 수동 지급 대기)\n` +
+                  `🏆 **당첨 등급:** \`${drawnGrade}\`\n` +
+                  `🎁 **당첨 보상:** \`${drawnReward}\` (★ 수동 지급 대기)\n` +
                   `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
                   `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
                 );

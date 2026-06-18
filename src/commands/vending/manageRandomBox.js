@@ -1,16 +1,17 @@
 import {
   SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder,
-  EmbedBuilder,
 } from 'discord.js';
 import * as db from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
-  .setName('랜덤박스추가')
-  .setDescription('새로운 랜덤박스(가챠) 상품을 추가합니다.');
+  .setName('랜덤박스관리')
+  .setDescription('등록된 랜덤박스의 설정(가격, 등급 확률, 보상)을 수정합니다.');
 
 export async function execute(interaction) {
   // Check admin permission
@@ -30,30 +31,86 @@ export async function execute(interaction) {
     return;
   }
 
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const boxList = Object.values(randomBoxes);
+
+  if (boxList.length === 0) {
+    await interaction.reply({
+      content: '❌ 등록된 랜덤박스가 없습니다. `/랜덤박스추가` 명령어로 박스를 먼저 등록해 주세요.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor('#9B59B6')
+    .setTitle('⚙️ 랜덤박스 관리 - 수정할 박스 선택')
+    .setDescription('설정을 수정할 랜덤박스를 선택해 주세요.');
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId('vending_randombox_manage_select')
+    .setPlaceholder('수정할 랜덤박스를 선택하세요')
+    .addOptions(
+      boxList.map((box) => ({
+        label: box.name.slice(0, 50),
+        value: box.id,
+        description: `가격: ${box.price.toLocaleString()}원`,
+      }))
+    );
+
+  const row = new ActionRowBuilder().addComponents(selectMenu);
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+    ephemeral: true,
+  });
+}
+
+export async function handleRandomBoxManageSelect(interaction) {
+  const boxId = interaction.values[0];
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const box = randomBoxes[boxId];
+
+  if (!box) {
+    await interaction.reply({
+      content: '❌ 해당 랜덤박스를 찾을 수 없습니다.',
+      ephemeral: true,
+    });
+    return;
+  }
+
   const modal = new ModalBuilder()
-    .setCustomId('randombox_add_modal_submit')
-    .setTitle('🎁 새로운 랜덤박스 등록');
+    .setCustomId(`randombox_manage_modal_${boxId}`)
+    .setTitle(`랜덤박스 수정 - ${box.name.slice(0, 25)}`);
 
   const nameInput = new TextInputBuilder()
-    .setCustomId('randombox_name')
+    .setCustomId('manage_box_name')
     .setLabel('랜덤박스 이름')
+    .setValue(box.name)
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder('등록할 랜덤박스의 이름을 입력하세요')
     .setRequired(true);
 
   const priceInput = new TextInputBuilder()
-    .setCustomId('randombox_price')
+    .setCustomId('manage_box_price')
     .setLabel('랜덤박스 가격')
+    .setValue(box.price.toString())
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder('가격을 입력하세요 (숫자만)')
     .setRequired(true);
 
+  const gradesConfigValue = box.grades
+    .map((g) => `${g.grade}:${g.displayProbability}:${g.actualProbability}:${g.reward}`)
+    .join('\n');
+
   const configInput = new TextInputBuilder()
-    .setCustomId('randombox_grades_config')
+    .setCustomId('manage_box_config')
     .setLabel('등급 설정 (등급명:공개확률:실제확률:보상)')
+    .setValue(gradesConfigValue)
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
-    .setPlaceholder('예시:\nS급:10:1:전설의 피닉스 펫\nA급:30:20:희귀한 드래곤 펫\n일반:60:79:기본 슬라임 펫\n(공개/실제 확률 합계가 각각 100이 되도록 하세요.)');
+    .setPlaceholder('예시:\nS급:10:1:전설의 피닉스 펫\nA급:30:20:희귀한 드래곤 펫\n일반:60:79:기본 슬라임 펫');
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
@@ -64,10 +121,10 @@ export async function execute(interaction) {
   await interaction.showModal(modal);
 }
 
-export async function handleRandomBoxAddModalSubmit(interaction) {
-  const name = interaction.fields.getTextInputValue('randombox_name').trim();
-  const priceStr = interaction.fields.getTextInputValue('randombox_price').trim();
-  const configStr = interaction.fields.getTextInputValue('randombox_grades_config').trim();
+export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
+  const name = interaction.fields.getTextInputValue('manage_box_name').trim();
+  const priceStr = interaction.fields.getTextInputValue('manage_box_price').trim();
+  const configStr = interaction.fields.getTextInputValue('manage_box_config').trim();
 
   const price = parseInt(priceStr, 10);
   if (isNaN(price) || price < 0) {
@@ -133,29 +190,33 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     return;
   }
 
-  // Write to database
   const dbData = db.read();
   if (!dbData.randomBoxes) dbData.randomBoxes = {};
+  const box = dbData.randomBoxes[boxId];
 
-  const boxId = `rbox_${Date.now()}`;
-  dbData.randomBoxes[boxId] = {
-    id: boxId,
-    name: name,
-    price: price,
-    grades: grades
-  };
+  if (!box) {
+    await interaction.reply({
+      content: '❌ 수정 중인 랜덤박스가 삭제되었거나 존재하지 않습니다.',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Update box settings
+  box.name = name;
+  box.price = price;
+  box.grades = grades;
 
   db.write(dbData);
 
-  // Success reply
   const embed = new EmbedBuilder()
     .setColor('#2ECC71')
-    .setTitle('🎁 랜덤박스 추가 완료')
+    .setTitle('⚙️ 랜덤박스 정보 수정 완료')
     .setDescription(
-      `새로운 랜덤박스가 성공적으로 추가되었습니다!\n\n` +
+      `랜덤박스 정보가 성공적으로 수정되었습니다!\n\n` +
       `📦 **이름:** \`${name}\`\n` +
       `💵 **가격:** \`${price.toLocaleString()}원\`\n\n` +
-      `📊 **등급별 설정 목록:**\n` +
+      `📊 **수정된 등급별 설정 목록:**\n` +
       grades.map(g => `• **${g.grade}**: 공개 \`${g.displayProbability}%\` | 실제 \`${g.actualProbability}%\` | 보상: \`${g.reward}\``).join('\n')
     )
     .setTimestamp();

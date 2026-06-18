@@ -29,6 +29,10 @@ import {
 } from '../commands/vending/deleteProduct.js';
 import { handleRandomBoxAddModalSubmit } from '../commands/vending/addRandomBox.js';
 import { handleRandomBoxDeleteSelect } from '../commands/vending/deleteRandomBox.js';
+import {
+  handleRandomBoxManageSelect,
+  handleRandomBoxManageModalSubmit,
+} from '../commands/vending/manageRandomBox.js';
 import * as db from '../utils/db.js';
 
 export const name = 'interactionCreate';
@@ -136,6 +140,10 @@ export async function execute(interaction) {
         await handleRandomBoxDeleteSelect(interaction);
         return;
       }
+      if (customId === 'vending_randombox_manage_select') {
+        await handleRandomBoxManageSelect(interaction);
+        return;
+      }
     } catch (error) {
       console.error(`Error handling select menu ${customId}:`, error);
     }
@@ -227,6 +235,13 @@ export async function execute(interaction) {
         await handleBuyModalSubmit(interaction, productId);
       } catch (error) {
         console.error(`Error handling purchase modal submit:`, error);
+      }
+    } else if (customId.startsWith('randombox_manage_modal_')) {
+      const boxId = customId.replace('randombox_manage_modal_', '');
+      try {
+        await handleRandomBoxManageModalSubmit(interaction, boxId);
+      } catch (error) {
+        console.error('Error handling random box manage modal submit:', error);
       }
     }
     return;
