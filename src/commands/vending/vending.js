@@ -29,19 +29,13 @@ export async function execute(interaction) {
   const subcommand = interaction.options.getSubcommand();
 
   if (subcommand === '생성') {
-    const imagePath = path.resolve('assets/galaxy_portal.png');
-    const attachment = new AttachmentBuilder(imagePath, {
-      name: 'galaxy_portal.png',
-    });
-
     const embed = new EmbedBuilder()
-      .setColor('#7B2CB7') // Cosmic purple
-      .setTitle('🌌 24시간 자동 판매 자판기')
+      .setColor('#7B2CB7') // Purple
+      .setTitle('24시간 자동 판매 자판기')
       .setDescription(
-        '🪙 **24시간 언제든 자동으로 충전&구매 가능한 자판기 입니다**\n' +
-          '⚠️ **오류 발생시 고객센터로 문의주세요!**'
-      )
-      .setThumbnail('attachment://galaxy_portal.png');
+        '**24시간 언제든 자동으로 충전 및 구매가 가능한 자판기입니다.**\n\n' +
+        '⚠️ **오류 발생 시 고객센터로 문의해 주세요!**'
+      );
 
     const btnInfo = new ButtonBuilder()
       .setCustomId('vending_info')
@@ -77,7 +71,6 @@ export async function execute(interaction) {
     await interaction.reply({
       embeds: [embed],
       components: [row],
-      files: [attachment],
     });
   }
 }
