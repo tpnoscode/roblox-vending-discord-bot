@@ -15,6 +15,7 @@ import {
   handleRandomBoxSelect,
   handleRandomBoxBuy,
   handleRandomBoxBuyModalSubmit,
+  handleInquiry,
 } from '../commands/vending/vending.js';
 import {
   handleManageBackToCategories,
@@ -79,6 +80,10 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_randombox') {
         await handleRandomBoxButton(interaction);
+        return;
+      }
+      if (customId === 'vending_inquiry') {
+        await handleInquiry(interaction);
         return;
       }
       if (customId === 'vending_randombox_back_to_list') {

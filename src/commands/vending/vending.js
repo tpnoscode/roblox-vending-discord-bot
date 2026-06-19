@@ -39,33 +39,40 @@ export async function execute(interaction) {
 
     const btnInfo = new ButtonBuilder()
       .setCustomId('vending_info')
-      .setLabel('[ 정보 ]')
+      .setLabel('정보')
       .setEmoji('📖')
       .setStyle(ButtonStyle.Primary);
 
     const btnCharge = new ButtonBuilder()
       .setCustomId('vending_charge')
-      .setLabel('[ 충전 ]')
+      .setLabel('충전')
       .setEmoji('💵')
       .setStyle(ButtonStyle.Success);
 
     const btnBuy = new ButtonBuilder()
       .setCustomId('vending_buy')
-      .setLabel('[ 구매 ]')
+      .setLabel('구매')
       .setEmoji('🛒')
       .setStyle(ButtonStyle.Secondary);
 
     const btnRandom = new ButtonBuilder()
       .setCustomId('vending_randombox')
-      .setLabel('[ 랜덤박스 ]')
+      .setLabel('랜덤박스')
       .setEmoji('🎁')
       .setStyle(ButtonStyle.Danger);
+
+    const btnInquiry = new ButtonBuilder()
+      .setCustomId('vending_inquiry')
+      .setLabel('문의하기')
+      .setEmoji('🙋‍♂️')
+      .setStyle(ButtonStyle.Primary);
 
     const row = new ActionRowBuilder().addComponents(
       btnInfo,
       btnCharge,
       btnBuy,
-      btnRandom
+      btnRandom,
+      btnInquiry
     );
 
     await interaction.reply({
@@ -1119,6 +1126,20 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
   };
 
   setTimeout(runSlotAnimation, 400);
+}
+
+export async function handleInquiry(interaction) {
+  const ownerId = process.env.OWNER_DISCORD_ID;
+  const embed = new EmbedBuilder()
+    .setColor('#3498DB') // Sleek blue
+    .setTitle('🙋‍♂️ 고객센터 & 문의 안내')
+    .setDescription(
+      `자판기 이용 중 오류가 발생했거나 충전/구매 관련 문의가 있으신가요?\n\n` +
+      (ownerId ? `✉️ **담당 관리자:** <@${ownerId}>\n\n` : '') +
+      `관리자에게 개인 메시지(DM)를 보내주시거나 고객센터 채널에 문의를 등록해 주시면 신속하게 도움을 드리겠습니다.`
+    );
+
+  await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
 
