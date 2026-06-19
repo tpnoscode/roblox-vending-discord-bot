@@ -1319,10 +1319,19 @@ export async function handleInquiryModalSubmit(interaction) {
   if (ownerId) adminMentions += `<@${ownerId}> `;
   if (adminRoleId) adminMentions += `<@&${adminRoleId}> `;
 
+  const btnClose = new ButtonBuilder()
+    .setCustomId('vending_inquiry_close')
+    .setLabel('문의 종료')
+    .setEmoji('🔒')
+    .setStyle(ButtonStyle.Danger);
+
+  const row = new ActionRowBuilder().addComponents(btnClose);
+
   try {
     await ticketChannel.send({
       content: adminMentions.trim() ? `${adminMentions} 새로운 문의가 등록되었습니다.` : '새로운 문의가 등록되었습니다.',
       embeds: [ticketEmbed],
+      components: [row],
     });
   } catch (sendErr) {
     console.error('Failed to send initial message in ticket channel:', sendErr);
@@ -1341,5 +1350,65 @@ export async function handleInquiryModalSubmit(interaction) {
 
   await interaction.reply({ embeds: [successEmbed], ephemeral: true });
 }
+
+export async function handleInquiryClose(interaction) {
+  const embed = new EmbedBuilder()
+    .setColor('#E74C3C')
+    .setTitle('🔒 문의 종료 확인')
+    .setDescription(
+      `**정말로 이 문의 채널을 종료하시겠습니까?**\n\n` +
+      `• 종료 시 이 채널은 **영구 삭제**되며, 대화 기록 복구가 불가능합니다.\n` +
+      `• 해결이 완료되었다면 아래의 **[정말 종료]** 버튼을 눌러주세요.`
+    );
+
+  const btnConfirm = new ButtonBuilder()
+    .setCustomId('vending_inquiry_close_confirm')
+    .setLabel('정말 종료')
+    .setEmoji('🗑️')
+    .setStyle(ButtonStyle.Danger);
+
+  const btnCancel = new ButtonBuilder()
+    .setCustomId('vending_inquiry_close_cancel')
+    .setLabel('취소')
+    .setStyle(ButtonStyle.Secondary);
+
+  const row = new ActionRowBuilder().addComponents(btnConfirm, btnCancel);
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+    ephemeral: true,
+  });
+}
+
+export async function handleInquiryCloseConfirm(interaction) {
+  try {
+    await interaction.update({
+      content: '⚙️ 문의 채널을 종료(삭제)하는 중입니다...',
+      embeds: [],
+      components: [],
+    });
+    await interaction.channel.delete('문의 종료에 따른 채널 삭제');
+  } catch (err) {
+    console.error('Failed to delete inquiry channel:', err);
+    try {
+      await interaction.followUp({
+        content: '❌ 채널 삭제 도중 오류가 발생했습니다. 봇의 관리자 권한을 확인해 주세요.',
+        ephemeral: true,
+      });
+    } catch (followErr) {
+      console.error('Failed to send error reply:', followErr);
+    }
+  }
+}
+
+export async function handleInquiryCloseCancel(interaction) {
+  await interaction.update({
+    content: '✅ 문의 종료가 취소되었습니다.',
+    embeds: [],
+    components: [],
+  });
+}
+
 
 

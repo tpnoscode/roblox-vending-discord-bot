@@ -18,6 +18,9 @@ import {
   handleInquiry,
   handleInquiryConfirm,
   handleInquiryModalSubmit,
+  handleInquiryClose,
+  handleInquiryCloseConfirm,
+  handleInquiryCloseCancel,
 } from '../commands/vending/vending.js';
 import {
   handleManageBackToCategories,
@@ -90,6 +93,18 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_inquiry_confirm') {
         await handleInquiryConfirm(interaction);
+        return;
+      }
+      if (customId === 'vending_inquiry_close') {
+        await handleInquiryClose(interaction);
+        return;
+      }
+      if (customId === 'vending_inquiry_close_confirm') {
+        await handleInquiryCloseConfirm(interaction);
+        return;
+      }
+      if (customId === 'vending_inquiry_close_cancel') {
+        await handleInquiryCloseCancel(interaction);
         return;
       }
       if (customId === 'vending_randombox_back_to_list') {
