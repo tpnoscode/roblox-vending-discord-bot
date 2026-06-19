@@ -4,13 +4,15 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  PermissionFlagsBits,
 } from 'discord.js';
 import * as db from '../../utils/db.js';
 import * as pushbullet from '../../utils/pushbullet.js';
 
 export const data = new SlashCommandBuilder()
   .setName('충전세팅')
-  .setDescription('자동 충전 시스템(계좌 및 푸시불렛 토큰)을 설정합니다.');
+  .setDescription('자동 충전 시스템(계좌 및 푸시불렛 토큰)을 설정합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
   // Check admin permission

@@ -5,12 +5,14 @@ import {
   TextInputStyle,
   ActionRowBuilder,
   EmbedBuilder,
+  PermissionFlagsBits,
 } from 'discord.js';
 import * as db from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('랜덤박스추가')
-  .setDescription('새로운 랜덤박스(가챠) 상품을 추가합니다.');
+  .setDescription('새로운 랜덤박스(가챠) 상품을 추가합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
   // Check admin permission

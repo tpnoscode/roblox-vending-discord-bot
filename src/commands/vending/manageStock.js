@@ -8,6 +8,7 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  PermissionFlagsBits,
 } from 'discord.js';
 import * as db from '../../utils/db.js';
 
@@ -15,7 +16,8 @@ export const data = new SlashCommandBuilder()
   .setName('재고관리')
   .setDescription(
     '등록된 재고 상품의 가격 및 수량, 특별 재고(계정 등)를 관리합니다.'
-  );
+  )
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
   const dbData = db.read();

@@ -6,12 +6,14 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  PermissionFlagsBits,
 } from 'discord.js';
 import * as db from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('랜덤박스관리')
-  .setDescription('등록된 랜덤박스의 설정(가격, 등급 확률, 보상)을 수정합니다.');
+  .setDescription('등록된 랜덤박스의 설정(가격, 등급 확률, 보상)을 수정합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
   // Check admin permission

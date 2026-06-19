@@ -3,12 +3,14 @@ import {
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  PermissionFlagsBits,
 } from 'discord.js';
 import * as db from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('랜덤박스삭제')
-  .setDescription('등록된 랜덤박스 상품을 즉시 삭제합니다.');
+  .setDescription('등록된 랜덤박스 상품을 즉시 삭제합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
   // Check admin permission

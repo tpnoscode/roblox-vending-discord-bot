@@ -1,9 +1,10 @@
-import { SlashCommandBuilder, EmbedBuilder, ChannelType } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
 import * as db from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('충전로그')
   .setDescription('충전 내역(자동/수동)이 전송될 로그 채널을 지정합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addChannelOption((option) =>
     option
       .setName('채널')

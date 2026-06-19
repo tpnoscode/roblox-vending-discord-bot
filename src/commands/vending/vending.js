@@ -9,6 +9,7 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  PermissionFlagsBits,
 } from 'discord.js';
 import path from 'path';
 import * as db from '../../utils/db.js';
@@ -17,6 +18,7 @@ import * as pushbullet from '../../utils/pushbullet.js';
 export const data = new SlashCommandBuilder()
   .setName('자판기')
   .setDescription('자판기 관련 명령어입니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addSubcommand((subcommand) =>
     subcommand
       .setName('생성')

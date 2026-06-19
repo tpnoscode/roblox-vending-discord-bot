@@ -4,11 +4,13 @@ import {
   TextInputBuilder,
   ActionRowBuilder,
   TextInputStyle,
+  PermissionFlagsBits,
 } from 'discord.js';
 
 export const data = new SlashCommandBuilder()
   .setName('재고생성')
-  .setDescription('상세 정보를 입력하여 새로운 재고 상품을 등록합니다.');
+  .setDescription('상세 정보를 입력하여 새로운 재고 상품을 등록합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
   const modal = new ModalBuilder()

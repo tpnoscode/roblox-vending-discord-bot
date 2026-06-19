@@ -1,9 +1,10 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import * as db from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('잔액수정')
   .setDescription('유저의 잔액을 추가하거나 차감합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addUserOption((option) =>
     option
       .setName('유저')
