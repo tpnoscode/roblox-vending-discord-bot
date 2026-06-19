@@ -10,6 +10,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   PermissionFlagsBits,
+  ChannelType,
 } from 'discord.js';
 import path from 'path';
 import * as db from '../../utils/db.js';
@@ -1129,17 +1130,216 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
 }
 
 export async function handleInquiry(interaction) {
-  const ownerId = process.env.OWNER_DISCORD_ID;
   const embed = new EmbedBuilder()
-    .setColor('#3498DB') // Sleek blue
-    .setTitle('🙋‍♂️ 고객센터 & 문의 안내')
+    .setColor('#E74C3C') // Red warning color
+    .setTitle('⚠️ 1:1 고객센터 문의 개설 경고')
     .setDescription(
-      `자판기 이용 중 오류가 발생했거나 충전/구매 관련 문의가 있으신가요?\n\n` +
-      (ownerId ? `✉️ **담당 관리자:** <@${ownerId}>\n\n` : '') +
-      `관리자에게 개인 메시지(DM)를 보내주시거나 고객센터 채널에 문의를 등록해 주시면 신속하게 도움을 드리겠습니다.`
+      `**1:1 문의 채널을 개설하기 전에 반드시 아래 사항을 읽어주세요.**\n\n` +
+      `• 단순 장난이나 허위 문의 시 **자판기 이용 제한 및 서버 밴** 처리 대상이 됩니다.\n` +
+      `• 서버 내 안내/규칙 채널에서 이미 명확하게 확인 가능한 질문은 답변이 거부되거나 문의가 임의 종료될 수 있습니다.\n` +
+      `• 문의를 열면 관리자에게 알림이 전송됩니다. 꼭 필요한 경우에만 문의를 개설해 주시기 바랍니다.\n\n` +
+      `정말로 1:1 비공개 상담 채널을 개설하시겠습니까?`
     );
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  const btnConfirm = new ButtonBuilder()
+    .setCustomId('vending_inquiry_confirm')
+    .setLabel('동의하고 문의 접수')
+    .setEmoji('🎫')
+    .setStyle(ButtonStyle.Danger);
+
+  const row = new ActionRowBuilder().addComponents(btnConfirm);
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+    ephemeral: true,
+  });
+}
+
+export async function handleInquiryConfirm(interaction) {
+  // Check if user already has an active ticket channel in this guild
+  const existingChannel = interaction.guild.channels.cache.find(
+    c => c.name.startsWith('🎫-') && c.topic === `User ID: ${interaction.user.id}`
+  );
+
+  if (existingChannel) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor('#E74C3C')
+      .setTitle('❌ 이미 진행 중인 문의가 존재합니다')
+      .setDescription(
+        `이미 개설된 1:1 문의 채널이 존재합니다.\n\n` +
+        `🎫 **기존 채널:** <#${existingChannel.id}>\n\n` +
+        `추가로 문의를 등록하시려면 기존 채널로 이동하여 상담을 계속하거나, 해결된 문의라면 관리자에게 채널 삭제를 요청해 주세요.`
+      )
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    return;
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('vending_inquiry_modal')
+    .setTitle('🎫 1:1 문의 접수');
+
+  const titleInput = new TextInputBuilder()
+    .setCustomId('inquiry_title')
+    .setLabel('문의 주제')
+    .setPlaceholder('예: Robux 충전 지연 문의 / 아이템 지급 지연')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(50)
+    .setRequired(true);
+
+  const contentInput = new TextInputBuilder()
+    .setCustomId('inquiry_content')
+    .setLabel('상세 문의 내용')
+    .setPlaceholder('오류 상황, 계정 이름, 결제 번호 등 필요한 정보를 상세히 기재해 주세요.')
+    .setStyle(TextInputStyle.Paragraph)
+    .setMaxLength(1000)
+    .setRequired(true);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(titleInput),
+    new ActionRowBuilder().addComponents(contentInput)
+  );
+
+  await interaction.showModal(modal);
+}
+
+export async function handleInquiryModalSubmit(interaction) {
+  const inquiryTitle = interaction.fields.getTextInputValue('inquiry_title').trim();
+  const inquiryContent = interaction.fields.getTextInputValue('inquiry_content').trim();
+
+  // Double check again just in case of double click
+  const existingChannel = interaction.guild.channels.cache.find(
+    c => c.name.startsWith('🎫-') && c.topic === `User ID: ${interaction.user.id}`
+  );
+
+  if (existingChannel) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor('#E74C3C')
+      .setTitle('❌ 이미 진행 중인 문의가 존재합니다')
+      .setDescription(
+        `이미 개설된 1:1 문의 채널이 존재합니다.\n\n` +
+        `🎫 **기존 채널:** <#${existingChannel.id}>`
+      )
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    return;
+  }
+
+  // Find or create '🎫 문의 채널' category
+  let category = interaction.guild.channels.cache.find(
+    c => c.name === '🎫 문의 채널' && c.type === ChannelType.GuildCategory
+  );
+
+  if (!category) {
+    try {
+      category = await interaction.guild.channels.create({
+        name: '🎫 문의 채널',
+        type: ChannelType.GuildCategory,
+      });
+    } catch (err) {
+      console.error('Failed to create ticket category:', err);
+    }
+  }
+
+  // Create private ticket channel
+  const ownerId = process.env.OWNER_DISCORD_ID;
+  const adminRoleId = process.env.ADMIN_ROLE_ID;
+
+  const permissionOverwrites = [
+    {
+      id: interaction.guild.roles.everyone.id,
+      deny: [PermissionFlagsBits.ViewChannel],
+    },
+    {
+      id: interaction.user.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+      ],
+    },
+  ];
+
+  if (ownerId) {
+    permissionOverwrites.push({
+      id: ownerId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+      ],
+    });
+  }
+
+  if (adminRoleId) {
+    permissionOverwrites.push({
+      id: adminRoleId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+      ],
+    });
+  }
+
+  let ticketChannel;
+  try {
+    ticketChannel = await interaction.guild.channels.create({
+      name: `🎫-${interaction.user.username}-문의`,
+      type: ChannelType.GuildText,
+      parent: category ? category.id : null,
+      topic: `User ID: ${interaction.user.id}`,
+      permissionOverwrites: permissionOverwrites,
+    });
+  } catch (err) {
+    console.error('Failed to create ticket channel:', err);
+    await interaction.reply({
+      content: '❌ 문의 채널 생성 중 오류가 발생했습니다. 관리자에게 문의해 주세요.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Send first message in the ticket channel
+  const ticketEmbed = new EmbedBuilder()
+    .setColor('#3498DB')
+    .setTitle('🎫 새로운 1:1 문의 접수')
+    .setDescription(
+      `**${interaction.user.username}**님이 새로운 문의를 접수하셨습니다.\n\n` +
+      `📌 **문의 주제:** \`${inquiryTitle}\`\n` +
+      `📝 **상세 문의 내용:**\n${inquiryContent}\n\n` +
+      `*관리자가 확인하는 대로 답변을 제공해 드리겠습니다. 잠시만 대기해 주세요.*`
+    )
+    .setTimestamp();
+
+  let adminMentions = '';
+  if (ownerId) adminMentions += `<@${ownerId}> `;
+  if (adminRoleId) adminMentions += `<@&${adminRoleId}> `;
+
+  try {
+    await ticketChannel.send({
+      content: adminMentions.trim() ? `${adminMentions} 새로운 문의가 등록되었습니다.` : '새로운 문의가 등록되었습니다.',
+      embeds: [ticketEmbed],
+    });
+  } catch (sendErr) {
+    console.error('Failed to send initial message in ticket channel:', sendErr);
+  }
+
+  // Reply success to the user
+  const successEmbed = new EmbedBuilder()
+    .setColor('#2ECC71')
+    .setTitle('✅ 문의 채널 개설 완료')
+    .setDescription(
+      `1:1 비공개 문의 채널이 성공적으로 생성되었습니다!\n\n` +
+      `🎫 **생성된 채널:** <#${ticketChannel.id}>\n\n` +
+      `위 채널로 이동하여 기재하신 문의사항에 대해 답변을 기다려 주세요.`
+    )
+    .setTimestamp();
+
+  await interaction.reply({ embeds: [successEmbed], ephemeral: true });
 }
 
 

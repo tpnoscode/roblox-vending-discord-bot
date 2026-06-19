@@ -16,6 +16,8 @@ import {
   handleRandomBoxBuy,
   handleRandomBoxBuyModalSubmit,
   handleInquiry,
+  handleInquiryConfirm,
+  handleInquiryModalSubmit,
 } from '../commands/vending/vending.js';
 import {
   handleManageBackToCategories,
@@ -84,6 +86,10 @@ export async function execute(interaction) {
       }
       if (customId === 'vending_inquiry') {
         await handleInquiry(interaction);
+        return;
+      }
+      if (customId === 'vending_inquiry_confirm') {
+        await handleInquiryConfirm(interaction);
         return;
       }
       if (customId === 'vending_randombox_back_to_list') {
@@ -172,6 +178,14 @@ export async function execute(interaction) {
         await handleChargeModalSubmit(interaction);
       } catch (error) {
         console.error('Error handling charge modal submit:', error);
+      }
+      return;
+    }
+    if (customId === 'vending_inquiry_modal') {
+      try {
+        await handleInquiryModalSubmit(interaction);
+      } catch (error) {
+        console.error('Error handling inquiry modal submit:', error);
       }
       return;
     }
