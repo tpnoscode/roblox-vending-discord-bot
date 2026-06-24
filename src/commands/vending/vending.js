@@ -1070,25 +1070,51 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
           console.error('Failed to send DM to randombox winner:', dmErr);
         }
 
-        // Log to charge/purchase log channel if configured
-        const purchaseLogChannelId = freshDb.config?.purchaseLogChannelId || freshDb.config?.logChannelId;
-        if (purchaseLogChannelId) {
+        // Log to random box log channel if configured
+        const randomBoxLogChannelId = freshDb.config?.randomBoxLogChannelId;
+        if (randomBoxLogChannelId) {
           try {
-            const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
+            const logChannel = await interaction.client.channels.fetch(randomBoxLogChannelId);
             if (logChannel) {
               const logEmbed = new EmbedBuilder()
                 .setColor('#9B59B6')
-                .setTitle('🎁 [랜덤박스 가챠] 구매 로그')
+                .setTitle('🎁 [랜덤박스 개봉 결과] 로그')
                 .setDescription(
                   `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
                   `📦 **구매 상자:** \`${box.name}\` (\`${quantity}개\` / \`${totalPrice.toLocaleString()}원\`)\n` +
-                  `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
+                  `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
+                  `👑 **최고 당첨 등급:** \`${bestDrawnGrade}\`\n` +
+                  `🎁 **최고 당첨 보상:** \`${bestDrawnReward}\`\n\n` +
+                  `📦 **전체 당첨 내역:**\n${summaryLines}\n\n` +
                   `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
-                );
+                )
+                .setTimestamp();
               await logChannel.send({ embeds: [logEmbed] });
             }
           } catch (logErr) {
-            console.error('Failed to write randombox purchase log to channel:', logErr);
+            console.error('Failed to write randombox result log to channel:', logErr);
+          }
+        } else {
+          // Fallback to charge/purchase log channel if configured
+          const purchaseLogChannelId = freshDb.config?.purchaseLogChannelId || freshDb.config?.logChannelId;
+          if (purchaseLogChannelId) {
+            try {
+              const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
+              if (logChannel) {
+                const logEmbed = new EmbedBuilder()
+                  .setColor('#9B59B6')
+                  .setTitle('🎁 [랜덤박스 가챠] 구매 로그')
+                  .setDescription(
+                    `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
+                    `📦 **구매 상자:** \`${box.name}\` (\`${quantity}개\` / \`${totalPrice.toLocaleString()}원\`)\n` +
+                    `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
+                    `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
+                  );
+                await logChannel.send({ embeds: [logEmbed] });
+              }
+            } catch (logErr) {
+              console.error('Failed to write randombox purchase log to channel:', logErr);
+            }
           }
         }
         return;
