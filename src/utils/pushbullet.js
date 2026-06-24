@@ -183,6 +183,7 @@ function findNameMatchWithBoundaries(body, name) {
 }
 
 export async function matchAndProcessDeposit(body) {
+  await db.fetch();
   const dbData = db.read();
   const pendingCharges = dbData.pendingCharges || [];
   

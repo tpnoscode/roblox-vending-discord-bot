@@ -46,6 +46,9 @@ export const name = 'interactionCreate';
 export const once = false;
 
 export async function execute(interaction) {
+  // Fetch fresh database state from Supabase before processing any interaction
+  await db.fetch();
+
   // Handle button interactions
   if (interaction.isButton()) {
     const { customId } = interaction;

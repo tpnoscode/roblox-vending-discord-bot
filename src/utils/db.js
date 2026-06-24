@@ -72,6 +72,20 @@ function initLocalJson() {
   }
 }
 
+export async function fetch() {
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT data FROM bot_state WHERE id = 1');
+      if (res.rows.length > 0) {
+        cachedData = res.rows[0].data;
+      }
+    } catch (err) {
+      console.error('Failed to fetch fresh data from Supabase:', err);
+    }
+  }
+  return cachedData;
+}
+
 export function read() {
   return cachedData;
 }
