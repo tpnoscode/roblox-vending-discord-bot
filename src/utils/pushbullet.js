@@ -251,63 +251,106 @@ export async function matchAndProcessDeposit(body) {
     c => !(c.userId === matchedCharge.userId && c.depositorName === matchedCharge.depositorName && c.amount === matchedCharge.amount)
   );
   
-  // Update user balance
-  if (!dbData.users) dbData.users = {};
-  let user = dbData.users[matchedCharge.userId];
-  if (!user) {
-    user = {
-      username: matchedCharge.username,
-      balance: 0,
-      totalCharged: 0,
-      totalPurchased: 0
-    };
-    dbData.users[matchedCharge.userId] = user;
-  }
+  const isWebCharge = matchedCharge.source === 'web';
+  let balanceAfter = 0;
   
-  user.balance = (user.balance || 0) + matchedCharge.amount;
-  user.totalCharged = (user.totalCharged || 0) + matchedCharge.amount;
+  if (isWebCharge) {
+    if (!dbData.webAccounts) dbData.webAccounts = {};
+    let acc = dbData.webAccounts[matchedCharge.username];
+    if (!acc) {
+      acc = {
+        username: matchedCharge.username,
+        balance: 0,
+        totalCharged: 0,
+        totalPurchased: 0,
+        history: []
+      };
+      dbData.webAccounts[matchedCharge.username] = acc;
+    }
+    acc.balance = (acc.balance || 0) + matchedCharge.amount;
+    acc.totalCharged = (acc.totalCharged || 0) + matchedCharge.amount;
+    acc.history = acc.history || [];
+    acc.history.unshift({
+      type: 'charge',
+      amount: matchedCharge.amount,
+      ts: Date.now()
+    });
+    balanceAfter = acc.balance;
+  } else {
+    // Update user balance
+    if (!dbData.users) dbData.users = {};
+    let user = dbData.users[matchedCharge.userId];
+    if (!user) {
+      user = {
+        username: matchedCharge.username,
+        balance: 0,
+        totalCharged: 0,
+        totalPurchased: 0
+      };
+      dbData.users[matchedCharge.userId] = user;
+    }
+    
+    user.balance = (user.balance || 0) + matchedCharge.amount;
+    user.totalCharged = (user.totalCharged || 0) + matchedCharge.amount;
+    balanceAfter = user.balance;
+  }
 
+  // Record transaction log
+  if (!dbData.transactions) dbData.transactions = [];
+  dbData.transactions.push({
+    userId: matchedCharge.userId,
+    username: matchedCharge.username,
+    type: 'charge',
+    price: matchedCharge.amount,
+    timestamp: Date.now(),
+    source: isWebCharge ? 'web' : 'discord'
+  });
+  
   db.write(dbData);
-  console.log(`✅ Pushbullet Match: Successfully charged ${matchedCharge.amount}원 to ${matchedCharge.username} (${matchedCharge.userId})`);
-
-  // 0. Edit the ephemeral reply of the charge request to Success
-  const activeInteraction = activeChargeInteractions.get(matchedCharge.userId);
-  if (activeInteraction) {
-    try {
-      await activeInteraction.editReply({
-        content: '✅ 즉시 충전성공',
-        embeds: []
-      });
-      activeChargeInteractions.delete(matchedCharge.userId);
-      console.log(`Pushbullet: Ephemeral charge message updated to success for ${matchedCharge.username}`);
-    } catch (err) {
-      console.error('Pushbullet: Failed to edit ephemeral message to success:', err);
+  console.log(`✅ Pushbullet Match: Successfully charged ${matchedCharge.amount}원 to ${matchedCharge.username} (${matchedCharge.userId}) [Source: ${matchedCharge.source || 'discord'}]`);
+  
+  if (!isWebCharge) {
+    // 0. Edit the ephemeral reply of the charge request to Success
+    const activeInteraction = activeChargeInteractions.get(matchedCharge.userId);
+    if (activeInteraction) {
+      try {
+        await activeInteraction.editReply({
+          content: '✅ 즉시 충전성공',
+          embeds: []
+        });
+        activeChargeInteractions.delete(matchedCharge.userId);
+        console.log(`Pushbullet: Ephemeral charge message updated to success for ${matchedCharge.username}`);
+      } catch (err) {
+        console.error('Pushbullet: Failed to edit ephemeral message to success:', err);
+      }
+    }
+    
+    // 1. Send confirmation DM to the user
+    if (client) {
+      try {
+        const discordUser = await client.users.fetch(matchedCharge.userId);
+        const dmEmbed = new EmbedBuilder()
+          .setColor('#2ECC71') // Green
+          .setTitle('💵 자동 충전 완료 안내')
+          .setDescription(
+            `**${matchedCharge.username}**님의 계좌 입금이 확인되어 잔액이 자동으로 충전되었습니다.\n\n` +
+            `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
+            `👤 **입금자명:** \`${matchedCharge.depositorName}\`\n` +
+            `🪙 **현재 잔액:** \`${balanceAfter.toLocaleString()}원\`\n\n` +
+            `자판기를 이용해 주셔서 감사합니다!`
+          )
+          .setTimestamp();
+          
+        await discordUser.send({ embeds: [dmEmbed] });
+        console.log(`Pushbullet: Sent charge confirmation DM to ${matchedCharge.username}`);
+      } catch (dmErr) {
+        console.error(`Pushbullet: Failed to send DM to ${matchedCharge.username}:`, dmErr);
+      }
     }
   }
 
-  // 1. Send confirmation DM to the user
+  // 2. Log to configured log channel (if any)
   if (client) {
-    try {
-      const discordUser = await client.users.fetch(matchedCharge.userId);
-      const dmEmbed = new EmbedBuilder()
-        .setColor('#2ECC71') // Green
-        .setTitle('💵 자동 충전 완료 안내')
-        .setDescription(
-          `**${matchedCharge.username}**님의 계좌 입금이 확인되어 잔액이 자동으로 충전되었습니다.\n\n` +
-          `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
-          `👤 **입금자명:** \`${matchedCharge.depositorName}\`\n` +
-          `🪙 **현재 잔액:** \`${user.balance.toLocaleString()}원\`\n\n` +
-          `자판기를 이용해 주셔서 감사합니다!`
-        )
-        .setTimestamp();
-        
-      await discordUser.send({ embeds: [dmEmbed] });
-      console.log(`Pushbullet: Sent charge confirmation DM to ${matchedCharge.username}`);
-    } catch (dmErr) {
-      console.error(`Pushbullet: Failed to send DM to ${matchedCharge.username}:`, dmErr);
-    }
-
-    // 2. Log to configured log channel (if any)
     const logChannelId = dbData.config?.logChannelId;
     if (logChannelId) {
       try {
@@ -315,13 +358,19 @@ export async function matchAndProcessDeposit(body) {
         if (logChannel && logChannel.isTextBased()) {
           const logEmbed = new EmbedBuilder()
             .setColor('#2ECC71')
-            .setTitle('💵 [자동 입금 충전] 완료')
+            .setTitle(isWebCharge ? '💵 [웹 자동 입금 충전] 완료' : '💵 [자동 입금 충전] 완료')
             .setDescription(
-              `⚡ **실시간 입금 매칭 성공**\n\n` +
-              `👤 **대상 유저:** <@${matchedCharge.userId}> (${matchedCharge.username})\n` +
-              `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
-              `👤 **실제 입금자명:** \`${matchedCharge.depositorName}\`\n` +
-              `🪙 **수정 후 잔액:** \`${user.balance.toLocaleString()}원\``
+              isWebCharge
+                ? `⚡ **웹사이트 실시간 입금 매칭 성공**\n\n` +
+                  `👤 **대상 웹계정:** \`${matchedCharge.username}\`\n` +
+                  `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
+                  `👤 **실제 입금자명:** \`${matchedCharge.depositorName}\`\n` +
+                  `🪙 **수정 후 잔액:** \`${balanceAfter.toLocaleString()}원\``
+                : `⚡ **실시간 입금 매칭 성공**\n\n` +
+                  `👤 **대상 유저:** <@${matchedCharge.userId}> (${matchedCharge.username})\n` +
+                  `💰 **충전 금액:** \`${matchedCharge.amount.toLocaleString()}원\`\n` +
+                  `👤 **실제 입금자명:** \`${matchedCharge.depositorName}\`\n` +
+                  `🪙 **수정 후 잔액:** \`${balanceAfter.toLocaleString()}원\``
             )
             .setTimestamp();
           await logChannel.send({ embeds: [logEmbed] });
