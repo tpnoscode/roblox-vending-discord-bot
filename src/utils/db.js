@@ -127,3 +127,34 @@ export function getUser(userId, username) {
   }
   return user;
 }
+
+export async function updateState(mutator) {
+  if (pool) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await client.query('SELECT data FROM bot_state WHERE id = 1 FOR UPDATE');
+      const data = res.rows.length ? res.rows[0].data : { users: {}, products: {}, stock: [], transactions: [], config: {} };
+      const result = await mutator(data);
+      await client.query('UPDATE bot_state SET data = $1 WHERE id = 1', [data]);
+      await client.query('COMMIT');
+      cachedData = data;
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } else {
+    const data = cachedData || { users: {}, products: {}, stock: [], transactions: [], config: {} };
+    const result = await mutator(data);
+    cachedData = data;
+    try {
+      fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.error('Error writing local database:', err);
+    }
+    return result;
+  }
+}

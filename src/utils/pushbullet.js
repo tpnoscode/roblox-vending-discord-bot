@@ -183,130 +183,142 @@ function findNameMatchWithBoundaries(body, name) {
 }
 
 export async function matchAndProcessDeposit(body) {
-  await db.fetch();
-  const dbData = db.read();
-  const pendingCharges = dbData.pendingCharges || [];
+  let matchedResult = null;
   
-  if (pendingCharges.length === 0) {
+  try {
+    matchedResult = await db.updateState((dbData) => {
+      const pendingCharges = dbData.pendingCharges || [];
+      if (pendingCharges.length === 0) {
+        return null;
+      }
+
+      // Filter out charges older than 5 minutes
+      const now = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+      
+      const validCharges = [];
+      let expiredCount = 0;
+
+      for (const charge of pendingCharges) {
+        if (now - charge.createdAt > fiveMinutes) {
+          expiredCount++;
+        } else {
+          validCharges.push(charge);
+        }
+      }
+
+      if (expiredCount > 0) {
+        dbData.pendingCharges = validCharges;
+        console.log(`Pushbullet: Cleaned up ${expiredCount} expired pending charge(s) inside transaction.`);
+      }
+
+      if (validCharges.length === 0) {
+        return null;
+      }
+
+      let matchedIndex = -1;
+      for (let i = 0; i < validCharges.length; i++) {
+        const charge = validCharges[i];
+        const amountStr = charge.amount.toString();
+        const amountFormatted = charge.amount.toLocaleString();
+
+        // Find if the depositor name matches with proper boundaries
+        const nameIndex = findNameMatchWithBoundaries(body, charge.depositorName);
+        if (nameIndex === -1) {
+          continue;
+        }
+
+        // Slice out the specific matched name from the body
+        const bodyWithoutName = body.slice(0, nameIndex) + body.slice(nameIndex + charge.depositorName.length);
+
+        const matchesAmount = bodyWithoutName.includes(amountStr) || bodyWithoutName.includes(amountFormatted);
+
+        if (matchesAmount) {
+          matchedIndex = i;
+          break;
+        }
+      }
+
+      if (matchedIndex === -1) {
+        return null;
+      }
+
+      const matchedCharge = validCharges[matchedIndex];
+      
+      // Remove the matched charge from the database
+      dbData.pendingCharges = dbData.pendingCharges.filter(
+        c => !(c.userId === matchedCharge.userId && c.depositorName === matchedCharge.depositorName && c.amount === matchedCharge.amount)
+      );
+      
+      const isWebCharge = matchedCharge.source === 'web';
+      let balanceAfter = 0;
+      
+      if (isWebCharge) {
+        if (!dbData.webAccounts) dbData.webAccounts = {};
+        let acc = dbData.webAccounts[matchedCharge.username];
+        if (!acc) {
+          acc = {
+            username: matchedCharge.username,
+            balance: 0,
+            totalCharged: 0,
+            totalPurchased: 0,
+            history: []
+          };
+          dbData.webAccounts[matchedCharge.username] = acc;
+        }
+        acc.balance = (acc.balance || 0) + matchedCharge.amount;
+        acc.totalCharged = (acc.totalCharged || 0) + matchedCharge.amount;
+        acc.history = acc.history || [];
+        acc.history.unshift({
+          type: 'charge',
+          amount: matchedCharge.amount,
+          ts: Date.now(),
+          chargeId: matchedCharge.id
+        });
+        balanceAfter = acc.balance;
+      } else {
+        // Update user balance
+        if (!dbData.users) dbData.users = {};
+        let user = dbData.users[matchedCharge.userId];
+        if (!user) {
+          user = {
+            username: matchedCharge.username,
+            balance: 0,
+            totalCharged: 0,
+            totalPurchased: 0
+          };
+          dbData.users[matchedCharge.userId] = user;
+        }
+        
+        user.balance = (user.balance || 0) + matchedCharge.amount;
+        user.totalCharged = (user.totalCharged || 0) + matchedCharge.amount;
+        balanceAfter = user.balance;
+      }
+
+      // Record transaction log
+      if (!dbData.transactions) dbData.transactions = [];
+      dbData.transactions.push({
+        userId: matchedCharge.userId,
+        username: matchedCharge.username,
+        type: 'charge',
+        price: matchedCharge.amount,
+        timestamp: Date.now(),
+        source: isWebCharge ? 'web' : 'discord'
+      });
+
+      return { matchedCharge, isWebCharge, balanceAfter };
+    });
+  } catch (err) {
+    console.error('Pushbullet: Error matching deposit:', err);
     return;
   }
 
-  // Filter out charges older than 5 minutes
-  const now = Date.now();
-  const fiveMinutes = 5 * 60 * 1000;
-  
-  const validCharges = [];
-  let expiredCount = 0;
-
-  for (const charge of pendingCharges) {
-    if (now - charge.createdAt > fiveMinutes) {
-      expiredCount++;
-    } else {
-      validCharges.push(charge);
-    }
-  }
-
-  if (expiredCount > 0) {
-    dbData.pendingCharges = validCharges;
-    db.write(dbData);
-    console.log(`Pushbullet: Cleaned up ${expiredCount} expired pending charge(s).`);
-  }
-
-  if (validCharges.length === 0) {
-    return;
-  }
-
-  let matchedIndex = -1;
-  for (let i = 0; i < validCharges.length; i++) {
-    const charge = validCharges[i];
-    const amountStr = charge.amount.toString();
-    const amountFormatted = charge.amount.toLocaleString();
-
-    // Find if the depositor name matches with proper boundaries
-    const nameIndex = findNameMatchWithBoundaries(body, charge.depositorName);
-    if (nameIndex === -1) {
-      continue;
-    }
-
-    // Slice out the specific matched name from the body
-    const bodyWithoutName = body.slice(0, nameIndex) + body.slice(nameIndex + charge.depositorName.length);
-
-    const matchesAmount = bodyWithoutName.includes(amountStr) || bodyWithoutName.includes(amountFormatted);
-
-    if (matchesAmount) {
-      matchedIndex = i;
-      break;
-    }
-  }
-
-  if (matchedIndex === -1) {
+  if (!matchedResult) {
     console.log('Pushbullet: No matching pending charge found for this notification.');
     return;
   }
 
-  const matchedCharge = validCharges[matchedIndex];
-  
-  // Remove the matched charge from the database
-  dbData.pendingCharges = dbData.pendingCharges.filter(
-    c => !(c.userId === matchedCharge.userId && c.depositorName === matchedCharge.depositorName && c.amount === matchedCharge.amount)
-  );
-  
-  const isWebCharge = matchedCharge.source === 'web';
-  let balanceAfter = 0;
-  
-  if (isWebCharge) {
-    if (!dbData.webAccounts) dbData.webAccounts = {};
-    let acc = dbData.webAccounts[matchedCharge.username];
-    if (!acc) {
-      acc = {
-        username: matchedCharge.username,
-        balance: 0,
-        totalCharged: 0,
-        totalPurchased: 0,
-        history: []
-      };
-      dbData.webAccounts[matchedCharge.username] = acc;
-    }
-    acc.balance = (acc.balance || 0) + matchedCharge.amount;
-    acc.totalCharged = (acc.totalCharged || 0) + matchedCharge.amount;
-    acc.history = acc.history || [];
-    acc.history.unshift({
-      type: 'charge',
-      amount: matchedCharge.amount,
-      ts: Date.now()
-    });
-    balanceAfter = acc.balance;
-  } else {
-    // Update user balance
-    if (!dbData.users) dbData.users = {};
-    let user = dbData.users[matchedCharge.userId];
-    if (!user) {
-      user = {
-        username: matchedCharge.username,
-        balance: 0,
-        totalCharged: 0,
-        totalPurchased: 0
-      };
-      dbData.users[matchedCharge.userId] = user;
-    }
-    
-    user.balance = (user.balance || 0) + matchedCharge.amount;
-    user.totalCharged = (user.totalCharged || 0) + matchedCharge.amount;
-    balanceAfter = user.balance;
-  }
-
-  // Record transaction log
-  if (!dbData.transactions) dbData.transactions = [];
-  dbData.transactions.push({
-    userId: matchedCharge.userId,
-    username: matchedCharge.username,
-    type: 'charge',
-    price: matchedCharge.amount,
-    timestamp: Date.now(),
-    source: isWebCharge ? 'web' : 'discord'
-  });
-  
-  db.write(dbData);
+  const { matchedCharge, isWebCharge, balanceAfter } = matchedResult;
   console.log(`✅ Pushbullet Match: Successfully charged ${matchedCharge.amount}원 to ${matchedCharge.username} (${matchedCharge.userId}) [Source: ${matchedCharge.source || 'discord'}]`);
   
   if (!isWebCharge) {
