@@ -306,7 +306,11 @@ export async function matchAndProcessDeposit(body) {
         source: isWebCharge ? 'web' : 'discord'
       });
 
-      return { matchedCharge, isWebCharge, balanceAfter };
+      // 로그 채널 ID는 트랜잭션 안(dbData 접근 가능한 스코프)에서 캡처해 밖으로 전달.
+      // (트랜잭션 밖에서는 dbData가 스코프에 없어 ReferenceError가 나던 버그 수정)
+      const logChannelId = dbData.config?.logChannelId || null;
+
+      return { matchedCharge, isWebCharge, balanceAfter, logChannelId };
     });
   } catch (err) {
     console.error('Pushbullet: Error matching deposit:', err);
@@ -318,7 +322,7 @@ export async function matchAndProcessDeposit(body) {
     return;
   }
 
-  const { matchedCharge, isWebCharge, balanceAfter } = matchedResult;
+  const { matchedCharge, isWebCharge, balanceAfter, logChannelId } = matchedResult;
   console.log(`✅ Pushbullet Match: Successfully charged ${matchedCharge.amount}원 to ${matchedCharge.username} (${matchedCharge.userId}) [Source: ${matchedCharge.source || 'discord'}]`);
   
   if (!isWebCharge) {
@@ -363,7 +367,6 @@ export async function matchAndProcessDeposit(body) {
 
   // 2. Log to configured log channel (if any)
   if (client) {
-    const logChannelId = dbData.config?.logChannelId;
     if (logChannelId) {
       try {
         const logChannel = await client.channels.fetch(logChannelId);
