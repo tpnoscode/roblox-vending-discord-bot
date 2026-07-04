@@ -29,7 +29,6 @@ import {
   handleManageModalSubmit,
 } from '../commands/vending/manageStock.js';
 import { handleSettingsModalSubmit } from '../commands/vending/chargeSettings.js';
-import { handleSocialSettingsModalSubmit } from '../commands/vending/socialSettings.js';
 import {
   handleDeleteBackToCategories,
   handleDeleteSelectCategory,
@@ -189,14 +188,6 @@ export async function execute(interaction) {
         await handleSettingsModalSubmit(interaction);
       } catch (error) {
         console.error('Error handling charge settings modal:', error);
-      }
-      return;
-    }
-    if (customId === 'vending_social_settings_modal') {
-      try {
-        await handleSocialSettingsModalSubmit(interaction);
-      } catch (error) {
-        console.error('Error handling social settings modal:', error);
       }
       return;
     }
