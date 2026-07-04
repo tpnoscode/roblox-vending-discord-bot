@@ -79,14 +79,13 @@ export async function handleSettingsModalSubmit(interaction) {
   const pushbulletToken = interaction.fields.getTextInputValue('settings_pushbullet_token');
 
   try {
-    const dbData = db.read();
-    if (!dbData.config) dbData.config = {};
-    
-    dbData.config.bankInfo = bankInfo;
-    dbData.config.accountHolder = accountHolder;
-    dbData.config.pushbulletToken = pushbulletToken;
-
-    db.write(dbData);
+    // 트랜잭션 — 동시 진행 중인 구매/충전의 변경분을 덮어쓰지 않도록
+    await db.updateState((dbData) => {
+      dbData.config = dbData.config || {};
+      dbData.config.bankInfo = bankInfo;
+      dbData.config.accountHolder = accountHolder;
+      dbData.config.pushbulletToken = pushbulletToken;
+    });
 
     // Restart Pushbullet WebSocket listener with new token
     await pushbullet.restart();

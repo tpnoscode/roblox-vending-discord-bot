@@ -219,11 +219,35 @@ export async function handleManageModalSubmit(interaction, productId) {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  const dbData = db.read();
-  if (!dbData.products) dbData.products = {};
-  const product = dbData.products[productId];
+  // 트랜잭션 안에서 확인+수정 — 동시에 진행 중인 구매(재고 차감)의 변경분을
+  // 통째로 덮어쓰지 않도록 잠금 후 처리.
+  let result;
+  try {
+    result = await db.updateState((dbData) => {
+      dbData.products = dbData.products || {};
+      const product = dbData.products[productId];
+      if (!product) {
+        return { notFound: true };
+      }
 
-  if (!product) {
+      product.price = price;
+      if (specialStock.length > 0) {
+        product.specialStock = specialStock;
+        product.stockCount = specialStock.length;
+      } else {
+        product.stockCount = count;
+        delete product.specialStock;
+      }
+
+      return { name: product.name, stockCount: product.stockCount };
+    });
+  } catch (err) {
+    console.error('재고 수정 처리 실패:', err);
+    await interaction.reply({ content: '❌ 처리 중 오류가 발생했습니다.', ephemeral: true });
+    return;
+  }
+
+  if (result?.notFound) {
     await interaction.reply({
       content: '❌ 수정 중인 상품이 삭제되었거나 존재하지 않습니다.',
       ephemeral: true,
@@ -231,24 +255,12 @@ export async function handleManageModalSubmit(interaction, productId) {
     return;
   }
 
-  product.price = price;
-
-  if (specialStock.length > 0) {
-    product.specialStock = specialStock;
-    product.stockCount = specialStock.length;
-  } else {
-    product.stockCount = count;
-    delete product.specialStock;
-  }
-
-  db.write(dbData);
-
   await interaction.reply({
     content:
       `✅ **재고 정보가 수정 완료되었습니다!**\n\n` +
-      `📦 **이름:** \`${product.name}\`\n` +
+      `📦 **이름:** \`${result.name}\`\n` +
       `💵 **수정된 가격:** \`${price.toLocaleString()}원\`\n` +
-      `📊 **수정된 수량:** \`${product.stockCount}개\` ${specialStock.length > 0 ? '(★ 특별 재고 적용됨)' : '(일반 재고)'}`,
+      `📊 **수정된 수량:** \`${result.stockCount}개\` ${specialStock.length > 0 ? '(★ 특별 재고 적용됨)' : '(일반 재고)'}`,
     ephemeral: true,
   });
 }

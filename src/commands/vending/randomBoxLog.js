@@ -16,13 +16,11 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction) {
   const channel = interaction.options.getChannel('채널');
 
-  // Save channel ID to database config
-  const dbData = db.read();
-  if (!dbData.config) {
-    dbData.config = {};
-  }
-  dbData.config.randomBoxLogChannelId = channel.id;
-  db.write(dbData);
+  // Save channel ID to database config (트랜잭션 — 다른 동시 변경 덮어쓰지 않도록)
+  await db.updateState((dbData) => {
+    dbData.config = dbData.config || {};
+    dbData.config.randomBoxLogChannelId = channel.id;
+  });
 
   const embed = new EmbedBuilder()
     .setColor('#9B59B6') // Purple color for random boxes

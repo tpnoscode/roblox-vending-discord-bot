@@ -69,11 +69,17 @@ export async function execute(interaction) {
 
 export async function handleRandomBoxDeleteSelect(interaction) {
   const boxId = interaction.values[0];
-  const dbData = db.read();
-  const randomBoxes = dbData.randomBoxes || {};
-  const box = randomBoxes[boxId];
 
-  if (!box) {
+  // 트랜잭션 안에서 확인+삭제 — 동시 진행 중인 구매/충전의 변경분을 덮어쓰지 않도록
+  const result = await db.updateState((dbData) => {
+    const box = dbData.randomBoxes?.[boxId];
+    if (!box) return { notFound: true };
+    const boxName = box.name;
+    delete dbData.randomBoxes[boxId];
+    return { boxName };
+  });
+
+  if (result.notFound) {
     await interaction.reply({
       content: '❌ 해당 랜덤박스를 찾을 수 없습니다.',
       ephemeral: true,
@@ -81,11 +87,7 @@ export async function handleRandomBoxDeleteSelect(interaction) {
     return;
   }
 
-  const boxName = box.name;
-
-  // Delete from database
-  delete dbData.randomBoxes[boxId];
-  db.write(dbData);
+  const boxName = result.boxName;
 
   const embed = new EmbedBuilder()
     .setColor('#2ECC71') // Green for success

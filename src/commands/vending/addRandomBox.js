@@ -71,19 +71,17 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     return;
   }
 
-  // Write to database with empty grades configuration
-  const dbData = db.read();
-  if (!dbData.randomBoxes) dbData.randomBoxes = {};
-
+  // 트랜잭션 안에서 추가 — 동시 진행 중인 구매/충전의 변경분을 덮어쓰지 않도록
   const boxId = `rbox_${Date.now()}`;
-  dbData.randomBoxes[boxId] = {
-    id: boxId,
-    name: name,
-    price: price,
-    grades: [] // Initialized empty, configured via /랜덤박스관리
-  };
-
-  db.write(dbData);
+  await db.updateState((dbData) => {
+    dbData.randomBoxes = dbData.randomBoxes || {};
+    dbData.randomBoxes[boxId] = {
+      id: boxId,
+      name: name,
+      price: price,
+      grades: [] // Initialized empty, configured via /랜덤박스관리
+    };
+  });
 
   // Success reply
   const embed = new EmbedBuilder()

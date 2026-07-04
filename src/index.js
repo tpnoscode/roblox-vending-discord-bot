@@ -3,6 +3,15 @@ import { Client, GatewayIntentBits, Collection } from 'discord.js';
 import { loadCommands, loadEvents } from './utils/loader.js';
 import * as pushbullet from './utils/pushbullet.js';
 
+// 개별 interaction 처리 중 놓친 예외 하나가 봇 프로세스 전체를 죽이지 않도록.
+// (프로세스가 죽으면 docker가 재시작하긴 하지만, 그 사이 자동충전 매칭/구매가 전부 끊김)
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled promise rejection (봇은 계속 실행됨):', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (봇은 계속 실행됨):', err);
+});
+
 const requiredEnv = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
 

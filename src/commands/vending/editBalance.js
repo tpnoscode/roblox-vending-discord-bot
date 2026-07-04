@@ -24,39 +24,66 @@ export async function execute(interaction) {
   const targetUser = interaction.options.getUser('유저');
   const amount = interaction.options.getInteger('금액');
 
-  // Load and initialize user
-  const userStats = db.getUser(targetUser.id, targetUser.username);
-  const oldBalance = userStats.balance || 0;
-  const newBalance = oldBalance + amount;
-
-  const dbData = db.read();
-  if (!dbData.users) dbData.users = {};
-  if (!dbData.users[targetUser.id]) {
-    dbData.users[targetUser.id] = {
-      username: targetUser.username,
-      balance: 0,
-      totalCharged: 0,
-      totalPurchased: 0,
-    };
+  if (amount === 0) {
+    await interaction.reply({ content: '⚠️ 금액은 0이 될 수 없습니다.', ephemeral: true });
+    return;
   }
 
-  // Set new balance
-  dbData.users[targetUser.id].balance = newBalance;
+  let result;
+  try {
+    // 공유 DB 트랜잭션(FOR UPDATE) + interaction.id 멱등성 가드 —
+    // 봇이 여러 인스턴스로 뜨거나 같은 interaction이 중복 전달돼도 정확히 1회만 반영됨.
+    // (2026-07-04 /웹사이트잔액 이중충전 사고와 동일한 클래스의 버그를 여기서도 선제 차단)
+    result = await db.updateState((dbData) => {
+      dbData.processedInteractions = dbData.processedInteractions || {};
+      const now = Date.now();
+      for (const [id, ts] of Object.entries(dbData.processedInteractions)) {
+        if (now - ts > 10 * 60 * 1000) delete dbData.processedInteractions[id];
+      }
+      if (dbData.processedInteractions[interaction.id]) {
+        return { duplicate: true };
+      }
+      dbData.processedInteractions[interaction.id] = now;
 
-  // If amount is positive, increment totalCharged stat
-  if (amount > 0) {
-    dbData.users[targetUser.id].totalCharged =
-      (dbData.users[targetUser.id].totalCharged || 0) + amount;
+      dbData.users = dbData.users || {};
+      if (!dbData.users[targetUser.id]) {
+        dbData.users[targetUser.id] = {
+          username: targetUser.username,
+          balance: 0,
+          totalCharged: 0,
+          totalPurchased: 0,
+        };
+      }
+      const userStats = dbData.users[targetUser.id];
+      const oldBalance = userStats.balance || 0;
+      const newBalance = oldBalance + amount;
+      userStats.balance = newBalance;
+      if (amount > 0) {
+        userStats.totalCharged = (userStats.totalCharged || 0) + amount;
+      }
+
+      return { oldBalance, newBalance, logChannelId: dbData.config?.logChannelId };
+    });
+  } catch (err) {
+    console.error('잔액수정 명령 처리 실패:', err);
+    await interaction.reply({ content: '❌ 처리 중 오류가 발생했습니다.', ephemeral: true });
+    return;
   }
 
-  db.write(dbData);
+  if (result?.duplicate) {
+    console.warn(`잔액수정: 이미 처리된 interaction.id 재수신, 스킵 (${interaction.id})`);
+    try {
+      await interaction.reply({ content: '⚠️ 이미 처리된 요청입니다.', ephemeral: true });
+    } catch { /* 다른 인스턴스가 먼저 응답했으면 무시 */ }
+    return;
+  }
+
+  const { oldBalance, newBalance, logChannelId } = result;
 
   // Send recharge log if positive recharge and a log channel is configured
-  if (amount > 0 && dbData.config?.logChannelId) {
+  if (amount > 0 && logChannelId) {
     try {
-      const logChannel = await interaction.client.channels.fetch(
-        dbData.config.logChannelId
-      );
+      const logChannel = await interaction.client.channels.fetch(logChannelId);
       if (logChannel) {
         const logEmbed = new EmbedBuilder()
           .setColor('#2ECC71')

@@ -192,24 +192,25 @@ export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
     return;
   }
 
-  const dbData = db.read();
-  if (!dbData.randomBoxes) dbData.randomBoxes = {};
-  const box = dbData.randomBoxes[boxId];
+  // 트랜잭션 안에서 확인+수정 — 동시 진행 중인 구매/충전의 변경분을 덮어쓰지 않도록
+  const result = await db.updateState((dbData) => {
+    dbData.randomBoxes = dbData.randomBoxes || {};
+    const box = dbData.randomBoxes[boxId];
+    if (!box) return { notFound: true };
 
-  if (!box) {
+    box.name = name;
+    box.price = price;
+    box.grades = grades;
+    return { ok: true };
+  });
+
+  if (result.notFound) {
     await interaction.reply({
       content: '❌ 수정 중인 랜덤박스가 삭제되었거나 존재하지 않습니다.',
       ephemeral: true
     });
     return;
   }
-
-  // Update box settings
-  box.name = name;
-  box.price = price;
-  box.grades = grades;
-
-  db.write(dbData);
 
   const embed = new EmbedBuilder()
     .setColor('#2ECC71')

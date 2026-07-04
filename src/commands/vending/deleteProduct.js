@@ -165,11 +165,17 @@ export async function handleDeleteSelectCategory(interaction) {
 
 export async function handleDeleteSelectProduct(interaction) {
   const productId = interaction.values[0];
-  const dbData = db.read();
-  const products = dbData.products || {};
-  const product = products[productId];
 
-  if (!product) {
+  // 트랜잭션 안에서 확인+삭제 — 동시 진행 중인 구매(재고 차감)의 변경분을 덮어쓰지 않도록
+  const result = await db.updateState((dbData) => {
+    const product = dbData.products?.[productId];
+    if (!product) return { notFound: true };
+    const productName = product.name;
+    delete dbData.products[productId];
+    return { productName };
+  });
+
+  if (result.notFound) {
     await interaction.reply({
       content: '❌ 상품 정보를 찾을 수 없습니다.',
       ephemeral: true,
@@ -177,11 +183,7 @@ export async function handleDeleteSelectProduct(interaction) {
     return;
   }
 
-  const productName = product.name;
-  
-  // Delete product from the database
-  delete dbData.products[productId];
-  db.write(dbData);
+  const productName = result.productName;
 
   const embed = new EmbedBuilder()
     .setColor('#2ECC71') // Green for success

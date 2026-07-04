@@ -231,19 +231,17 @@ export async function execute(interaction) {
       }
 
       try {
-        const dbData = db.read();
-        if (!dbData.products) dbData.products = {};
-
         const productId = `prod_${Date.now()}`;
-        dbData.products[productId] = {
-          id: productId,
-          name: name,
-          category: category,
-          price: price,
-          stockCount: 0,
-        };
-
-        db.write(dbData);
+        await db.updateState((dbData) => {
+          dbData.products = dbData.products || {};
+          dbData.products[productId] = {
+            id: productId,
+            name: name,
+            category: category,
+            price: price,
+            stockCount: 0,
+          };
+        });
 
         await interaction.reply({
           content:

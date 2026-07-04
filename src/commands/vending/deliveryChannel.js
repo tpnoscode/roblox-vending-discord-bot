@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { read, write } from '../../utils/db.js';
+import { updateState } from '../../utils/db.js';
 
 export const data = new SlashCommandBuilder()
   .setName('수령채널')
@@ -7,10 +7,11 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
-  const db = read();
-  db.config = db.config || {};
-  db.config.deliveryChannelId = interaction.channelId;
-  write(db);
+  // 트랜잭션 — 다른 동시 변경(재고/잔액 등)을 덮어쓰지 않도록
+  await updateState((dbData) => {
+    dbData.config = dbData.config || {};
+    dbData.config.deliveryChannelId = interaction.channelId;
+  });
 
   await interaction.reply({
     content:

@@ -415,65 +415,87 @@ export async function handleBuyModalSubmit(interaction, productId) {
     return;
   }
 
-  // Double read to lock state
-  const dbData = db.read();
-  const products = dbData.products || {};
-  const product = products[productId];
+  // 공유 DB 트랜잭션(FOR UPDATE) — 재고확인+차감을 원자적으로 처리.
+  // 예전엔 read/write 사이에 잠금이 없어서 동시 구매 시 재고가 마이너스로 팔리거나
+  // (오버셀) 잔액 차감이 유실될 수 있었음.
+  let tx;
+  try {
+    tx = await db.updateState((dbData) => {
+      const products = dbData.products || {};
+      const product = products[productId];
 
-  if (!product) {
-    await interaction.reply({
-      content: '❌ 상품 정보를 찾을 수 없습니다.',
-      ephemeral: true,
-    });
-    return;
-  }
-
-  if (product.stockCount < quantity) {
-    await interaction.reply({
-      content: `❌ 재고가 부족합니다! (현재 재고: \`${product.stockCount}개\` / 요청 수량: \`${quantity}개\`)`,
-      ephemeral: true,
-    });
-    return;
-  }
-
-  const userStats = db.getUser(interaction.user.id, interaction.user.username);
-  const totalPrice = product.price * quantity;
-
-  if (userStats.balance < totalPrice) {
-    await interaction.reply({
-      content: `❌ 잔액이 부족합니다!\n• **필요 금액:** \`${totalPrice.toLocaleString()}원\`\n• **현재 잔액:** \`${userStats.balance.toLocaleString()}원\``,
-      ephemeral: true,
-    });
-    return;
-  }
-
-  // Deduct values and save for rollback
-  const previousUserBalance = userStats.balance;
-  const previousUserPurchased = userStats.totalPurchased;
-  const previousProductStock = product.stockCount;
-  let previousSpecialStock = null;
-
-  userStats.balance -= totalPrice;
-  userStats.totalPurchased = (userStats.totalPurchased || 0) + totalPrice;
-  product.stockCount -= quantity;
-
-  let deliveredItems = [];
-  const isSpecial = product.specialStock && product.specialStock.length > 0;
-
-  if (isSpecial) {
-    previousSpecialStock = [...product.specialStock];
-    for (let i = 0; i < quantity; i++) {
-      const item = product.specialStock.shift();
-      if (item) {
-        deliveredItems.push(item);
+      if (!product) {
+        return { error: 'NOT_FOUND' };
       }
-    }
+      if (product.stockCount < quantity) {
+        return { error: 'OUT_OF_STOCK', stockCount: product.stockCount };
+      }
+
+      dbData.users = dbData.users || {};
+      if (!dbData.users[interaction.user.id]) {
+        dbData.users[interaction.user.id] = {
+          username: interaction.user.username,
+          balance: 0,
+          totalCharged: 0,
+          totalPurchased: 0,
+        };
+      }
+      const userStats = dbData.users[interaction.user.id];
+      const totalPrice = product.price * quantity;
+
+      if ((userStats.balance || 0) < totalPrice) {
+        return { error: 'INSUFFICIENT_BALANCE', balance: userStats.balance || 0, totalPrice };
+      }
+
+      userStats.balance -= totalPrice;
+      userStats.totalPurchased = (userStats.totalPurchased || 0) + totalPrice;
+      product.stockCount -= quantity;
+
+      let deliveredItems = [];
+      const isSpecial = product.specialStock && product.specialStock.length > 0;
+      if (isSpecial) {
+        for (let i = 0; i < quantity; i++) {
+          const item = product.specialStock.shift();
+          if (item) deliveredItems.push(item);
+        }
+      }
+
+      return {
+        ok: true,
+        totalPrice,
+        newBalance: userStats.balance,
+        productName: product.name,
+        isSpecial,
+        deliveredItems,
+        purchaseLogChannelId: dbData.config?.purchaseLogChannelId,
+      };
+    });
+  } catch (err) {
+    console.error('구매 처리 실패:', err);
+    await interaction.reply({ content: '❌ 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.', ephemeral: true });
+    return;
   }
 
-  // Save changes locally in dbData references
-  dbData.users[interaction.user.id] = userStats;
-  dbData.products[productId] = product;
-  db.write(dbData);
+  if (tx.error === 'NOT_FOUND') {
+    await interaction.reply({ content: '❌ 상품 정보를 찾을 수 없습니다.', ephemeral: true });
+    return;
+  }
+  if (tx.error === 'OUT_OF_STOCK') {
+    await interaction.reply({
+      content: `❌ 재고가 부족합니다! (현재 재고: \`${tx.stockCount}개\` / 요청 수량: \`${quantity}개\`)`,
+      ephemeral: true,
+    });
+    return;
+  }
+  if (tx.error === 'INSUFFICIENT_BALANCE') {
+    await interaction.reply({
+      content: `❌ 잔액이 부족합니다!\n• **필요 금액:** \`${tx.totalPrice.toLocaleString()}원\`\n• **현재 잔액:** \`${tx.balance.toLocaleString()}원\``,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const { totalPrice, newBalance, productName, isSpecial, deliveredItems, purchaseLogChannelId } = tx;
 
   // Attempt to DM the user the details
   try {
@@ -483,10 +505,10 @@ export async function handleBuyModalSubmit(interaction, productId) {
       .setDescription(
         `안녕하세요, **자판기**를 이용해 주셔서 진심으로 감사드립니다!\n` +
           `구매하신 상품 및 결제 상세 정보는 다음과 같습니다.\n\n` +
-          `📦 **구매 상품:** \`${product.name}\`\n` +
+          `📦 **구매 상품:** \`${productName}\`\n` +
           `🔢 **구매 수량:** \`${quantity}개\`\n` +
           `💵 **결제 금액:** \`${totalPrice.toLocaleString()}원\`\n` +
-          `💳 **구매 후 잔액:** \`${userStats.balance.toLocaleString()}원\`\n` +
+          `💳 **구매 후 잔액:** \`${newBalance.toLocaleString()}원\`\n` +
           `📅 **구매 일시:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
           (isSpecial
             ? `🔑 **세부 구매 내역:**\n` +
@@ -511,18 +533,16 @@ export async function handleBuyModalSubmit(interaction, productId) {
     await interaction.reply({ embeds: [successEmbed], ephemeral: true });
 
     // Send purchase log if a purchase log channel is configured
-    if (dbData.config?.purchaseLogChannelId) {
+    if (purchaseLogChannelId) {
       try {
-        const logChannel = await interaction.client.channels.fetch(
-          dbData.config.purchaseLogChannelId
-        );
+        const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
         if (logChannel) {
           const logEmbed = new EmbedBuilder()
             .setColor('#E67E22')
             .setTitle('🛒 상품 구매 로그')
             .setDescription(
               `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
-                `📦 **구매 상품:** \`${product.name}\`\n` +
+                `📦 **구매 상품:** \`${productName}\`\n` +
                 `🔢 **구매 수량:** \`${quantity}개\`\n` +
                 `💵 **결제 금액:** \`${totalPrice.toLocaleString()}원\`\n` +
                 `📅 **구매 일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
@@ -539,20 +559,26 @@ export async function handleBuyModalSubmit(interaction, productId) {
       error
     );
 
-    // ROLLBACK TRANSACTION
-    const rollbackData = db.read();
-    if (rollbackData.users[interaction.user.id]) {
-      rollbackData.users[interaction.user.id].balance = previousUserBalance;
-      rollbackData.users[interaction.user.id].totalPurchased =
-        previousUserPurchased;
+    // ROLLBACK TRANSACTION — 스냅샷으로 덮어쓰지 않고 상대적으로 되돌림
+    // (그 사이 다른 구매/충전이 있었어도 그 변경분을 잃지 않도록).
+    try {
+      await db.updateState((dbData) => {
+        const u = dbData.users?.[interaction.user.id];
+        if (u) {
+          u.balance = (u.balance || 0) + totalPrice;
+          u.totalPurchased = Math.max(0, (u.totalPurchased || 0) - totalPrice);
+        }
+        const p = dbData.products?.[productId];
+        if (p) {
+          p.stockCount = (p.stockCount || 0) + quantity;
+          if (isSpecial && deliveredItems.length) {
+            p.specialStock = [...deliveredItems, ...(p.specialStock || [])];
+          }
+        }
+      });
+    } catch (rollbackErr) {
+      console.error('구매 롤백 실패(수동 확인 필요):', rollbackErr);
     }
-    if (rollbackData.products[productId]) {
-      rollbackData.products[productId].stockCount = previousProductStock;
-      if (isSpecial) {
-        rollbackData.products[productId].specialStock = previousSpecialStock;
-      }
-    }
-    db.write(rollbackData);
 
     await interaction.reply({
       content:
@@ -639,27 +665,37 @@ export async function handleChargeModalSubmit(interaction) {
     return;
   }
 
-  const dbData = db.read();
-  const config = dbData.config || {};
+  // 공유 DB 트랜잭션 — 자동충전 매칭(pushbullet.js)이 같은 pendingCharges 배열을
+  // 동시에 읽고/쓰므로, 잠금 없이 read-modify-write 하면 매칭 성공을 통째로 덮어써
+  // 없애버릴 수 있음(충전 성공 직후 유저가 재요청하면 그 성공기록이 사라지는 사고 가능).
+  let txResult;
+  try {
+    txResult = await db.updateState((dbData) => {
+      const config = dbData.config || {};
 
-  // Remove any previous pending charges for this user to avoid duplicates
-  if (dbData.pendingCharges) {
-    dbData.pendingCharges = dbData.pendingCharges.filter(c => c.userId !== interaction.user.id);
-  } else {
-    dbData.pendingCharges = [];
+      // Remove any previous pending charges for this user to avoid duplicates
+      dbData.pendingCharges = (dbData.pendingCharges || []).filter(c => c.userId !== interaction.user.id);
+
+      // Create pending charge object
+      const pendingCharge = {
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        depositorName: depositorName,
+        amount: amount,
+        createdAt: Date.now()
+      };
+
+      dbData.pendingCharges.push(pendingCharge);
+
+      return { config, pendingCharge };
+    });
+  } catch (err) {
+    console.error('충전 신청 처리 실패:', err);
+    await interaction.reply({ content: '❌ 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.', ephemeral: true });
+    return;
   }
 
-  // Create pending charge object
-  const pendingCharge = {
-    userId: interaction.user.id,
-    username: interaction.user.username,
-    depositorName: depositorName,
-    amount: amount,
-    createdAt: Date.now()
-  };
-
-  dbData.pendingCharges.push(pendingCharge);
-  db.write(dbData);
+  const { config, pendingCharge } = txResult;
 
   const embed = new EmbedBuilder()
     .setColor('#F1C40F') // Yellow/Gold
@@ -687,18 +723,21 @@ export async function handleChargeModalSubmit(interaction) {
   // Set timeout to handle 5-minute expiration
   setTimeout(async () => {
     try {
-      const currentDb = db.read();
-      const stillPending = (currentDb.pendingCharges || []).some(
-        c => c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt
-      );
+      // 트랜잭션 안에서 확인+제거를 원자적으로 — pushbullet 매칭과 동시에 실행돼도
+      // "이미 매칭되어 사라진 건"을 잘못 만료 처리하지 않도록 보장.
+      const { stillPending } = await db.updateState((dbData) => {
+        const wasStillPending = (dbData.pendingCharges || []).some(
+          c => c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt
+        );
+        if (wasStillPending) {
+          dbData.pendingCharges = (dbData.pendingCharges || []).filter(
+            c => !(c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt)
+          );
+        }
+        return { stillPending: wasStillPending };
+      });
 
       if (stillPending) {
-        // Remove from database
-        currentDb.pendingCharges = (currentDb.pendingCharges || []).filter(
-          c => !(c.userId === pendingCharge.userId && c.createdAt === pendingCharge.createdAt)
-        );
-        db.write(currentDb);
-
         // Remove from active interactions map
         pushbullet.activeChargeInteractions.delete(pendingCharge.userId);
 
@@ -953,17 +992,11 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
     ephemeral: true,
   });
 
-  // Execute draws
+  // Execute draws (추첨 자체는 순수 계산이라 트랜잭션 밖에서 먼저 해도 안전 — DB엔 아무 영향 없음)
   const drawnResults = [];
   let highestGradeIndex = grades.length; // lower index is higher grade
   let bestDrawnGrade = null;
   let bestDrawnReward = null;
-
-  // Deduct balance and update user stats in database
-  const freshDb = db.read();
-  const freshUser = freshDb.users[interaction.user.id];
-  freshUser.balance = (freshUser.balance || 0) - totalPrice;
-  freshUser.totalPurchased = (freshUser.totalPurchased || 0) + totalPrice;
 
   for (let i = 0; i < quantity; i++) {
     let rand = Math.random() * 100;
@@ -997,22 +1030,67 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
       bestDrawnGrade = drawnGrade;
       bestDrawnReward = drawnReward;
     }
-
-    // Add draw transaction
-    if (!freshDb.transactions) freshDb.transactions = [];
-    freshDb.transactions.push({
-      userId: interaction.user.id,
-      username: interaction.user.username,
-      type: 'randombox_purchase',
-      boxName: box.name,
-      price: box.price,
-      drawnGrade: drawnGrade,
-      drawnReward: drawnReward,
-      timestamp: Date.now()
-    });
   }
 
-  db.write(freshDb);
+  // 공유 DB 트랜잭션(FOR UPDATE) — 잔액 차감 + 거래기록을 원자적으로 처리.
+  // 애니메이션 시작 전 잔액을 한 번 확인했지만, 그 사이(리플라이 대기 등) 다른 구매로
+  // 잔액이 줄었을 수 있으므로 실제 차감 직전 트랜잭션 안에서 다시 한 번 검증한다.
+  let tx;
+  try {
+    tx = await db.updateState((dbData) => {
+      dbData.users = dbData.users || {};
+      if (!dbData.users[interaction.user.id]) {
+        dbData.users[interaction.user.id] = {
+          username: interaction.user.username,
+          balance: 0,
+          totalCharged: 0,
+          totalPurchased: 0,
+        };
+      }
+      const freshUser = dbData.users[interaction.user.id];
+      if ((freshUser.balance || 0) < totalPrice) {
+        return { error: 'INSUFFICIENT_BALANCE', balance: freshUser.balance || 0 };
+      }
+
+      freshUser.balance = (freshUser.balance || 0) - totalPrice;
+      freshUser.totalPurchased = (freshUser.totalPurchased || 0) + totalPrice;
+
+      if (!dbData.transactions) dbData.transactions = [];
+      for (const r of drawnResults) {
+        dbData.transactions.push({
+          userId: interaction.user.id,
+          username: interaction.user.username,
+          type: 'randombox_purchase',
+          boxName: box.name,
+          price: box.price,
+          drawnGrade: r.grade,
+          drawnReward: r.reward,
+          timestamp: Date.now()
+        });
+      }
+
+      return {
+        ok: true,
+        newBalance: freshUser.balance,
+        randomBoxLogChannelId: dbData.config?.randomBoxLogChannelId,
+        purchaseLogChannelId: dbData.config?.purchaseLogChannelId || dbData.config?.logChannelId,
+      };
+    });
+  } catch (err) {
+    console.error('랜덤박스 구매 처리 실패:', err);
+    await interaction.editReply({ content: '❌ 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.', embeds: [] });
+    return;
+  }
+
+  if (tx.error === 'INSUFFICIENT_BALANCE') {
+    await interaction.editReply({
+      content: `❌ **잔액이 부족합니다.**\n현재 잔액: \`${tx.balance.toLocaleString()}원\` | 결제 금액: \`${totalPrice.toLocaleString()}원\``,
+      embeds: [],
+    });
+    return;
+  }
+
+  const { newBalance, randomBoxLogChannelId, purchaseLogChannelId } = tx;
 
   // Roulette animation sequence (7.2 seconds total, 400ms interval)
   let currentFrame = 0;
@@ -1061,7 +1139,7 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
               `🎁 **최고 당첨 보상:** \`${bestDrawnReward}\`\n\n` +
               `📦 **전체 당첨 내역:**\n${summaryLines}\n\n` +
               `💵 **구매 총액:** \`${totalPrice.toLocaleString()}원\` (단가: \`${box.price.toLocaleString()}원\`)\n` +
-              `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
+              `🪙 **구매 후 잔액:** \`${newBalance.toLocaleString()}원\`\n\n` +
               `티켓을 열고 상품을 받아가세요`
             )
             .setTimestamp();
@@ -1071,7 +1149,6 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
         }
 
         // Log to random box log channel if configured
-        const randomBoxLogChannelId = freshDb.config?.randomBoxLogChannelId;
         if (randomBoxLogChannelId) {
           try {
             const logChannel = await interaction.client.channels.fetch(randomBoxLogChannelId);
@@ -1082,7 +1159,7 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
                 .setDescription(
                   `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
                   `📦 **구매 상자:** \`${box.name}\` (\`${quantity}개\` / \`${totalPrice.toLocaleString()}원\`)\n` +
-                  `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n\n` +
+                  `🪙 **구매 후 잔액:** \`${newBalance.toLocaleString()}원\`\n\n` +
                   `👑 **최고 당첨 등급:** \`${bestDrawnGrade}\`\n` +
                   `🎁 **최고 당첨 보상:** \`${bestDrawnReward}\`\n\n` +
                   `📦 **전체 당첨 내역:**\n${summaryLines}\n\n` +
@@ -1096,7 +1173,6 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
           }
         } else {
           // Fallback to charge/purchase log channel if configured
-          const purchaseLogChannelId = freshDb.config?.purchaseLogChannelId || freshDb.config?.logChannelId;
           if (purchaseLogChannelId) {
             try {
               const logChannel = await interaction.client.channels.fetch(purchaseLogChannelId);
@@ -1107,7 +1183,7 @@ export async function handleRandomBoxBuyModalSubmit(interaction, boxId) {
                   .setDescription(
                     `👤 **구매 유저:** <@${interaction.user.id}> (${interaction.user.username})\n` +
                     `📦 **구매 상자:** \`${box.name}\` (\`${quantity}개\` / \`${totalPrice.toLocaleString()}원\`)\n` +
-                    `🪙 **구매 후 잔액:** \`${freshUser.balance.toLocaleString()}원\`\n` +
+                    `🪙 **구매 후 잔액:** \`${newBalance.toLocaleString()}원\`\n` +
                     `📅 **일시:** <t:${Math.floor(Date.now() / 1000)}:F>`
                   );
                 await logChannel.send({ embeds: [logEmbed] });
