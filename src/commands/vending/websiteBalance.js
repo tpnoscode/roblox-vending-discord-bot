@@ -18,6 +18,12 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
   );
 
+// 동일 인터랙션 중복 처리 방지(라이브에서 같은 interaction.id가 짧은 간격으로 두 번 들어와
+// 잔액이 이중으로 반영되는 사고가 실제 발생함) + 같은 웹계정 대상 연타 방지(디바운스).
+const processedInteractionIds = new Set();
+const recentAdjustments = new Map(); // username -> 마지막 처리 시각(ms)
+const DEBOUNCE_MS = 4000;
+
 export async function execute(interaction) {
   const username = interaction.options.getString('아이디');
   const amount = interaction.options.getInteger('금액');
@@ -26,6 +32,25 @@ export async function execute(interaction) {
     await interaction.reply({ content: '⚠️ 금액은 0이 될 수 없습니다.', ephemeral: true });
     return;
   }
+
+  if (processedInteractionIds.has(interaction.id)) {
+    console.warn(`웹사이트잔액: 중복 interaction.id 감지, 무시함 (${interaction.id})`);
+    return;
+  }
+  processedInteractionIds.add(interaction.id);
+  setTimeout(() => processedInteractionIds.delete(interaction.id), 60_000);
+
+  const now = Date.now();
+  const lastProcessed = recentAdjustments.get(username);
+  if (lastProcessed && now - lastProcessed < DEBOUNCE_MS) {
+    const waitSec = Math.ceil((DEBOUNCE_MS - (now - lastProcessed)) / 1000);
+    await interaction.reply({
+      content: `⚠️ 방금 \`${username}\`님의 잔액을 조정했습니다. 중복 실행 방지를 위해 ${waitSec}초 후 다시 시도해주세요.`,
+      ephemeral: true,
+    });
+    return;
+  }
+  recentAdjustments.set(username, now);
 
   let result;
   try {
