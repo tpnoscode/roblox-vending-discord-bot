@@ -155,12 +155,14 @@ export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
     const displayProbStr = parts[1].replace('%', '').trim();
     const actualProbStr = parts[2].replace('%', '').trim();
     const rewardItem = parts[3].trim();
-    const displayProb = parseInt(displayProbStr, 10);
-    const actualProb = parseInt(actualProbStr, 10);
+    
+    // Parse as floats and round to 4 decimal places (0.0001%)
+    const displayProb = Math.round(parseFloat(displayProbStr) * 10000) / 10000;
+    const actualProb = Math.round(parseFloat(actualProbStr) * 10000) / 10000;
 
     if (isNaN(displayProb) || displayProb <= 0 || isNaN(actualProb) || actualProb <= 0) {
       await interaction.reply({
-        content: `❌ 확률은 0보다 큰 숫자여야 합니다.`,
+        content: `❌ 확률은 0보다 큰 숫자여야 합니다. (최대 소수점 4자리 0.0001%까지 입력 가능)`,
         ephemeral: true
       });
       return;
@@ -184,9 +186,13 @@ export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
     totalActualProb += actualProb;
   }
 
-  if (totalDisplayProb !== 100 || totalActualProb !== 100) {
+  // Multiply by 10000 and round to check sum as integer to avoid JS float precision issues
+  const roundedTotalDisplay = Math.round(totalDisplayProb * 10000);
+  const roundedTotalActual = Math.round(totalActualProb * 10000);
+
+  if (roundedTotalDisplay !== 1000000 || roundedTotalActual !== 1000000) {
     await interaction.reply({
-      content: `❌ 공개 확률과 실제 확률의 총합은 각각 100%여야 합니다.\n현재 공개 총합: \`${totalDisplayProb}%\` | 실제 총합: \`${totalActualProb}%\``,
+      content: `❌ 공개 확률과 실제 확률의 총합은 각각 100%여야 합니다.\n현재 공개 총합: \`${Math.round(totalDisplayProb * 10000) / 10000}%\` | 실제 총합: \`${Math.round(totalActualProb * 10000) / 10000}%\``,
       ephemeral: true
     });
     return;
