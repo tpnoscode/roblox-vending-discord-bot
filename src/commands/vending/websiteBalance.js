@@ -18,11 +18,11 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
   );
 
-// 동일 인터랙션 중복 처리 방지(라이브에서 같은 interaction.id가 짧은 간격으로 두 번 들어와
-// 잔액이 이중으로 반영되는 사고가 실제 발생함) + 같은 웹계정 대상 연타 방지(디바운스).
-const processedInteractionIds = new Set();
-const recentAdjustments = new Map(); // username -> 마지막 처리 시각(ms)
-const DEBOUNCE_MS = 4000;
+// 잔액 이중반영 방지 — 핵심은 "공유 DB에 처리한 interaction.id를 원자적으로 기록"하는 것.
+// 프로세스 메모리 Set만으로는 봇이 두 인스턴스로 뜨면(같은 토큰) 각자 자기 Set을 가져서 못 막는다.
+// updateState는 SELECT ... FOR UPDATE 트랜잭션이라, 여러 인스턴스가 동시에 들어와도 순차 처리되며
+// 두 번째는 이미 기록된 id를 보고 스킵한다 → 인스턴스가 몇 개든 정확히 1회만 반영.
+const PROCESSED_TTL_MS = 10 * 60 * 1000; // 처리기록 보관(그 후 정리) — 무한 증가 방지
 
 export async function execute(interaction) {
   const username = interaction.options.getString('아이디');
@@ -33,34 +33,28 @@ export async function execute(interaction) {
     return;
   }
 
-  if (processedInteractionIds.has(interaction.id)) {
-    console.warn(`웹사이트잔액: 중복 interaction.id 감지, 무시함 (${interaction.id})`);
-    return;
-  }
-  processedInteractionIds.add(interaction.id);
-  setTimeout(() => processedInteractionIds.delete(interaction.id), 60_000);
-
-  const now = Date.now();
-  const lastProcessed = recentAdjustments.get(username);
-  if (lastProcessed && now - lastProcessed < DEBOUNCE_MS) {
-    const waitSec = Math.ceil((DEBOUNCE_MS - (now - lastProcessed)) / 1000);
-    await interaction.reply({
-      content: `⚠️ 방금 \`${username}\`님의 잔액을 조정했습니다. 중복 실행 방지를 위해 ${waitSec}초 후 다시 시도해주세요.`,
-      ephemeral: true,
-    });
-    return;
-  }
-  recentAdjustments.set(username, now);
-
   let result;
   try {
-    // 공유 DB 트랜잭션(FOR UPDATE) 사용 — 웹/충전매칭과의 동시 수정 충돌 방지
+    // 공유 DB 트랜잭션(FOR UPDATE) — 멱등성 기록 + 잔액변경을 한 트랜잭션에서 원자적으로 처리
     result = await db.updateState((dbData) => {
+      // 1) 멱등성 가드: 이 interaction.id를 이미 처리했으면 아무 것도 하지 않는다.
+      dbData.processedInteractions = dbData.processedInteractions || {};
+      const now = Date.now();
+      for (const [id, ts] of Object.entries(dbData.processedInteractions)) {
+        if (now - ts > PROCESSED_TTL_MS) delete dbData.processedInteractions[id];
+      }
+      if (dbData.processedInteractions[interaction.id]) {
+        return { duplicate: true };
+      }
+      dbData.processedInteractions[interaction.id] = now;
+
+      // 2) 대상 계정 확인
       const acc = dbData.webAccounts?.[username];
       if (!acc) {
         return { notFound: true };
       }
 
+      // 3) 잔액 반영
       const oldBalance = acc.balance || 0;
       const newBalance = oldBalance + amount;
       acc.balance = newBalance;
@@ -72,7 +66,7 @@ export async function execute(interaction) {
       acc.history.unshift({
         type: 'admin_adjust',
         amount,
-        ts: Date.now(),
+        ts: now,
       });
 
       if (!dbData.transactions) dbData.transactions = [];
@@ -81,7 +75,7 @@ export async function execute(interaction) {
         username,
         type: 'admin_adjust',
         price: amount,
-        timestamp: Date.now(),
+        timestamp: now,
         source: 'web',
       });
 
@@ -90,6 +84,15 @@ export async function execute(interaction) {
   } catch (err) {
     console.error('웹사이트잔액 명령 처리 실패:', err);
     await interaction.reply({ content: '❌ 처리 중 오류가 발생했습니다.', ephemeral: true });
+    return;
+  }
+
+  // 중복 전달(또는 두 번째 인스턴스)로 이미 처리된 요청 — 조용히 무시(잔액 재반영 없음).
+  if (result?.duplicate) {
+    console.warn(`웹사이트잔액: 이미 처리된 interaction.id 재수신, 스킵 (${interaction.id})`);
+    try {
+      await interaction.reply({ content: '⚠️ 이미 처리된 요청입니다.', ephemeral: true });
+    } catch { /* 다른 인스턴스가 먼저 응답했으면 여기서 에러날 수 있음 — 무시 */ }
     return;
   }
 
