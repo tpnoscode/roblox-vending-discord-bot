@@ -102,6 +102,13 @@ export async function handleRandomBoxManageSelect(interaction) {
     .setStyle(TextInputStyle.Short)
     .setRequired(true);
 
+  const categoryInput = new TextInputBuilder()
+    .setCustomId('manage_box_category')
+    .setLabel('랜덤박스 카테고리')
+    .setValue(box.category || '미분류')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true);
+
   const gradesConfigValue = box.grades
     .map((g) => `${g.grade}:${g.displayProbability}:${g.actualProbability}:${g.reward}`)
     .join('\n');
@@ -117,6 +124,7 @@ export async function handleRandomBoxManageSelect(interaction) {
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
     new ActionRowBuilder().addComponents(priceInput),
+    new ActionRowBuilder().addComponents(categoryInput),
     new ActionRowBuilder().addComponents(configInput)
   );
 
@@ -126,6 +134,7 @@ export async function handleRandomBoxManageSelect(interaction) {
 export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
   const name = interaction.fields.getTextInputValue('manage_box_name').trim();
   const priceStr = interaction.fields.getTextInputValue('manage_box_price').trim();
+  const category = interaction.fields.getTextInputValue('manage_box_category').trim();
   const configStr = interaction.fields.getTextInputValue('manage_box_config').trim();
 
   const price = parseInt(priceStr, 10);
@@ -206,6 +215,7 @@ export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
 
     box.name = name;
     box.price = price;
+    box.category = category;
     box.grades = grades;
     return { ok: true };
   });
@@ -224,6 +234,7 @@ export async function handleRandomBoxManageModalSubmit(interaction, boxId) {
     .setDescription(
       `랜덤박스 정보가 성공적으로 수정되었습니다!\n\n` +
       `📦 **이름:** \`${name}\`\n` +
+      `📁 **카테고리:** \`${category}\`\n` +
       `💵 **가격:** \`${price.toLocaleString()}원\`\n\n` +
       `📊 **수정된 등급별 설정 목록:**\n` +
       grades.map(g => `• **${g.grade}**: 공개 \`${g.displayProbability}%\` | 실제 \`${g.actualProbability}%\` | 보상: \`${g.reward}\``).join('\n')

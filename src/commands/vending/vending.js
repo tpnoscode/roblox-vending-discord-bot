@@ -762,71 +762,48 @@ export async function handleRandomBoxButton(interaction) {
   const randomBoxes = dbData.randomBoxes || {};
   const boxList = Object.values(randomBoxes);
 
-  if (boxList.length === 0) {
-    await interaction.reply({
-      content: '❌ **현재 등록된 랜덤박스가 없습니다.**\n관리자가 `/랜덤박스추가` 명령어로 상자를 설정한 후 이용할 수 있습니다.',
-      ephemeral: true,
-    });
-    return;
-  }
+  const categories = new Set();
+  boxList.forEach(box => {
+    const cat = box.category || '미분류';
+    categories.add(cat);
+  });
 
   const embed = new EmbedBuilder()
     .setColor('#9B59B6') // Amethyst Purple
-    .setTitle('🎁 랜덤박스 상점')
-    .setDescription(
-      '🪙 **뽑고 싶은 랜덤박스를 아래 메뉴에서 선택해 주세요!**\n\n' +
-      boxList.map(box => `• **${box.name}** | 가격: \`${box.price.toLocaleString()}원\``).join('\n')
-    );
+    .setTitle('🎁 랜덤박스 카테고리 선택')
+    .setDescription('구매하실 랜덤박스의 카테고리를 선택해 주세요.');
 
   const selectMenu = new StringSelectMenuBuilder()
-    .setCustomId('vending_randombox_select')
-    .setPlaceholder('구매할 랜덤박스를 선택하세요')
-    .addOptions(
-      boxList.map((box) => ({
-        label: box.name.slice(0, 50),
-        value: box.id,
-        description: `가격: ${box.price.toLocaleString()}원`,
+    .setCustomId('vending_randombox_select_category')
+    .setPlaceholder('카테고리를 선택하세요');
+
+  if (categories.size === 0) {
+    embed.setDescription('❌ 현재 판매중인 랜덤박스가 없습니다.');
+    selectMenu.addOptions({
+      label: '등록된 랜덤박스가 없습니다',
+      value: 'no_categories_randombox',
+      description: '랜덤박스가 등록되면 카테고리가 활성화됩니다.',
+    }).setDisabled(true);
+  } else {
+    // Count boxes per category
+    const catMap = {};
+    boxList.forEach(box => {
+      const cat = box.category || '미분류';
+      catMap[cat] = (catMap[cat] || 0) + 1;
+    });
+
+    embed.setDescription(
+      '구매하실 랜덤박스의 카테고리를 선택해 주세요.\n\n' +
+      Array.from(categories).map(cat => `• **${cat}** : \`${catMap[cat]}개 박스\``).join('\n')
+    );
+
+    selectMenu.addOptions(
+      Array.from(categories).map(cat => ({
+        label: cat,
+        value: cat,
       }))
     );
-
-  const btnBack = new ButtonBuilder()
-    .setCustomId('vending_info_back') // Return to main vending menu
-    .setLabel('처음으로')
-    .setStyle(ButtonStyle.Secondary);
-
-  const rowMenu = new ActionRowBuilder().addComponents(selectMenu);
-  const rowBtn = new ActionRowBuilder().addComponents(btnBack);
-
-  await interaction.reply({
-    embeds: [embed],
-    components: [rowMenu, rowBtn],
-    ephemeral: true,
-  });
-}
-
-export async function handleRandomBoxBackToList(interaction) {
-  const dbData = db.read();
-  const randomBoxes = dbData.randomBoxes || {};
-  const boxList = Object.values(randomBoxes);
-
-  const embed = new EmbedBuilder()
-    .setColor('#9B59B6')
-    .setTitle('🎁 랜덤박스 상점')
-    .setDescription(
-      '🪙 **뽑고 싶은 랜덤박스를 아래 메뉴에서 선택해 주세요!**\n\n' +
-      boxList.map(box => `• **${box.name}** | 가격: \`${box.price.toLocaleString()}원\``).join('\n')
-    );
-
-  const selectMenu = new StringSelectMenuBuilder()
-    .setCustomId('vending_randombox_select')
-    .setPlaceholder('구매할 랜덤박스를 선택하세요')
-    .addOptions(
-      boxList.map((box) => ({
-        label: box.name.slice(0, 50),
-        value: box.id,
-        description: `가격: ${box.price.toLocaleString()}원`,
-      }))
-    );
+  }
 
   const btnBack = new ButtonBuilder()
     .setCustomId('vending_info_back')
@@ -836,14 +813,75 @@ export async function handleRandomBoxBackToList(interaction) {
   const rowMenu = new ActionRowBuilder().addComponents(selectMenu);
   const rowBtn = new ActionRowBuilder().addComponents(btnBack);
 
-  await interaction.update({
-    embeds: [embed],
-    components: [rowMenu, rowBtn],
-  });
+  if (interaction.message && interaction.message.flags.has('Ephemeral')) {
+    await interaction.update({ embeds: [embed], components: [rowMenu, rowBtn] });
+  } else {
+    await interaction.reply({
+      embeds: [embed],
+      components: [rowMenu, rowBtn],
+      ephemeral: true,
+    });
+  }
+}
+
+export async function handleRandomBoxSelectCategory(interaction) {
+  const selectedCategory = interaction.values[0];
+  await showCategoryBoxes(interaction, selectedCategory);
+}
+
+export async function showCategoryBoxes(interaction, selectedCategory) {
+  if (selectedCategory === 'no_categories_randombox') return;
+
+  const dbData = db.read();
+  const randomBoxes = dbData.randomBoxes || {};
+  const categoryBoxes = Object.values(randomBoxes).filter(
+    (b) => (b.category || '미분류') === selectedCategory
+  );
+
+  const embed = new EmbedBuilder()
+    .setColor('#9B59B6')
+    .setTitle(`🎁 [${selectedCategory}] 랜덤박스 선택`)
+    .setDescription(
+      `구매하실 랜덤박스를 선택해 주세요.\n\n` +
+      categoryBoxes
+        .map(b => `• **${b.name}** | 가격: \`${b.price.toLocaleString()}원\``)
+        .join('\n')
+    );
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId('vending_randombox_select_box')
+    .setPlaceholder('구매할 랜덤박스를 선택하세요');
+
+  if (categoryBoxes.length === 0) {
+    selectMenu.addOptions({
+      label: '등록된 상품이 없습니다',
+      value: 'no_boxes_randombox',
+    }).setDisabled(true);
+  } else {
+    selectMenu.addOptions(
+      categoryBoxes.map((b) => ({
+        label: b.name.slice(0, 50),
+        value: b.id,
+        description: `가격: ${b.price.toLocaleString()}원`,
+      }))
+    );
+  }
+
+  const btnBack = new ButtonBuilder()
+    .setCustomId('vending_randombox_back_to_categories')
+    .setLabel('뒤로 가기')
+    .setStyle(ButtonStyle.Secondary);
+
+  const rowMenu = new ActionRowBuilder().addComponents(selectMenu);
+  const rowBtn = new ActionRowBuilder().addComponents(btnBack);
+
+  await interaction.update({ embeds: [embed], components: [rowMenu, rowBtn] });
 }
 
 export async function handleRandomBoxSelect(interaction) {
   const boxId = interaction.values[0];
+  if (boxId === 'no_boxes_randombox') return;
+
   const dbData = db.read();
   const randomBoxes = dbData.randomBoxes || {};
   const box = randomBoxes[boxId];
@@ -877,7 +915,7 @@ export async function handleRandomBoxSelect(interaction) {
     .setStyle(ButtonStyle.Danger);
 
   const btnBack = new ButtonBuilder()
-    .setCustomId('vending_randombox_back_to_list')
+    .setCustomId(`vending_randombox_back_to_boxes:${box.category || '미분류'}`)
     .setLabel('뒤로 가기')
     .setStyle(ButtonStyle.Secondary);
 

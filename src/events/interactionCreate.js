@@ -11,7 +11,8 @@ import {
   handleCharge,
   handleChargeModalSubmit,
   handleRandomBoxButton,
-  handleRandomBoxBackToList,
+  handleRandomBoxSelectCategory,
+  showCategoryBoxes,
   handleRandomBoxSelect,
   handleRandomBoxBuy,
   handleRandomBoxBuyModalSubmit,
@@ -86,7 +87,7 @@ export async function execute(interaction) {
         await handleCharge(interaction);
         return;
       }
-      if (customId === 'vending_randombox') {
+      if (customId === 'vending_randombox' || customId === 'vending_randombox_back_to_categories') {
         await handleRandomBoxButton(interaction);
         return;
       }
@@ -110,8 +111,9 @@ export async function execute(interaction) {
         await handleInquiryCloseCancel(interaction);
         return;
       }
-      if (customId === 'vending_randombox_back_to_list') {
-        await handleRandomBoxBackToList(interaction);
+      if (customId.startsWith('vending_randombox_back_to_boxes:')) {
+        const category = customId.split(':')[1] || '미분류';
+        await showCategoryBoxes(interaction, category);
         return;
       }
       if (customId.startsWith('vending_randombox_buy_')) {
@@ -162,7 +164,11 @@ export async function execute(interaction) {
         await handleDeleteSelectProduct(interaction);
         return;
       }
-      if (customId === 'vending_randombox_select') {
+      if (customId === 'vending_randombox_select_category') {
+        await handleRandomBoxSelectCategory(interaction);
+        return;
+      }
+      if (customId === 'vending_randombox_select_box') {
         await handleRandomBoxSelect(interaction);
         return;
       }

@@ -50,9 +50,17 @@ export async function execute(interaction) {
     .setPlaceholder('가격을 입력하세요 (숫자만)')
     .setRequired(true);
 
+  const categoryInput = new TextInputBuilder()
+    .setCustomId('randombox_category')
+    .setLabel('랜덤박스 카테고리')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('카테고리 이름을 입력하세요 (예: 펫 상자)')
+    .setRequired(true);
+
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
-    new ActionRowBuilder().addComponents(priceInput)
+    new ActionRowBuilder().addComponents(priceInput),
+    new ActionRowBuilder().addComponents(categoryInput)
   );
 
   await interaction.showModal(modal);
@@ -61,6 +69,7 @@ export async function execute(interaction) {
 export async function handleRandomBoxAddModalSubmit(interaction) {
   const name = interaction.fields.getTextInputValue('randombox_name').trim();
   const priceStr = interaction.fields.getTextInputValue('randombox_price').trim();
+  const category = interaction.fields.getTextInputValue('randombox_category').trim();
 
   const price = parseInt(priceStr, 10);
   if (isNaN(price) || price < 0) {
@@ -79,6 +88,7 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
       id: boxId,
       name: name,
       price: price,
+      category: category,
       grades: [] // Initialized empty, configured via /랜덤박스관리
     };
   });
@@ -90,6 +100,7 @@ export async function handleRandomBoxAddModalSubmit(interaction) {
     .setDescription(
       `새로운 랜덤박스가 성공적으로 추가되었습니다!\n\n` +
       `📦 **이름:** \`${name}\`\n` +
+      `📁 **카테고리:** \`${category}\`\n` +
       `💵 **가격:** \`${price.toLocaleString()}원\`\n\n` +
       `⚠️ **안내**: 아직 등급 및 확률 설정이 완료되지 않았습니다.\n` +
       `곧바로 **\`/랜덤박스관리\`** 명령어를 사용해 구성품(확률, 보상)을 추가해 주세요!`

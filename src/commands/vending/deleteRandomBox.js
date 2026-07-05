@@ -52,7 +52,7 @@ export async function execute(interaction) {
     .setPlaceholder('삭제할 랜덤박스를 선택하세요')
     .addOptions(
       boxList.map((box) => ({
-        label: box.name.slice(0, 50),
+        label: `[${box.category || '미분류'}] ${box.name}`.slice(0, 50),
         value: box.id,
         description: `가격: ${box.price.toLocaleString()}원`,
       }))
